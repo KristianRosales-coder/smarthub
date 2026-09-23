@@ -1,0 +1,917 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <title>AR Floor Tiles — Android</title>
+  <style>
+    html,body{height:100%;margin:0;background:#000;color:#fff;font-family:system-ui,-apple-system,sans-serif;overflow:hidden;touch-action:none}
+    canvas{display:block;touch-action:none}
+    #hud{position:fixed;top:max(12px,env(safe-area-inset-top));left:12px;right:12px;z-index:6;padding:10px 12px;max-width:calc(100% - 24px);border-radius:8px;background:rgba(0,0,0,.72);font-size:13px;line-height:1.35;pointer-events:none}
+    #preUi{position:fixed;left:12px;bottom:max(12px,env(safe-area-inset-bottom));z-index:7}
+    #preUi button{padding:13px 18px;border:0;border-radius:8px;background:#1976d2;color:#fff;font-size:16px;font-weight:700}
+    #topActions{position:fixed;top:max(12px,env(safe-area-inset-top));right:12px;z-index:7;display:none}
+    #topActions.show{display:block}
+    #topActions button{width:40px;height:40px;border:0;border-radius:50%;background:rgba(255,255,255,.92);color:#111;font-size:20px;font-weight:700}
+    #drawBar{position:fixed;left:12px;right:12px;bottom:max(16px,env(safe-area-inset-bottom));z-index:8;display:none;gap:8px;justify-content:center;flex-wrap:wrap}
+    #drawBar.show{display:flex}
+    #drawBar button{padding:12px 16px;border:0;border-radius:10px;background:rgba(255,255,255,.16);color:#fff;font-size:14px;font-weight:700}
+    #drawBar button.primary{background:#1976d2}
+    #drawBar button:disabled{opacity:.4}
+    #sheet{position:fixed;left:0;right:0;bottom:0;z-index:9;padding:16px 16px max(18px,env(safe-area-inset-bottom));background:rgba(40,40,40,.9);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);transform:translateY(110%);transition:transform .28s ease;border-radius:18px 18px 0 0}
+    #sheet.open{transform:translateY(0)}
+    #sheet h2{margin:0 0 14px;text-align:center;font-size:16px;font-weight:600}
+    .tiles{display:flex;justify-content:center;gap:22px;margin-bottom:16px}
+    .tileOpt{display:flex;flex-direction:column;align-items:center;gap:8px;background:none;border:0;color:#fff;padding:0}
+    .tileOpt .ball{width:64px;height:64px;border-radius:50%;border:3px solid transparent;background-size:cover;background-position:center;box-shadow:0 4px 14px rgba(0,0,0,.35)}
+    .tileOpt.active .ball{border-color:#fff}
+    .tileOpt span{font-size:12px;opacity:.9}
+    .row{display:flex;justify-content:center;gap:10px}
+    .row button{padding:12px 18px;border:0;border-radius:10px;background:#1976d2;color:#fff;font-size:15px;font-weight:700}
+    .row button.ghost{background:rgba(255,255,255,.14)}
+    #aimHint{position:fixed;left:50%;top:42%;transform:translate(-50%,-50%);z-index:5;width:54px;height:54px;border:2px solid rgba(255,255,255,.85);border-radius:50%;pointer-events:none;opacity:0;transition:opacity .2s}
+    #aimHint.on{opacity:1}
+    #aimHint::before,#aimHint::after{content:"";position:absolute;background:rgba(255,255,255,.85)}
+    #aimHint::before{left:50%;top:8px;bottom:8px;width:2px;transform:translateX(-50%)}
+    #aimHint::after{top:50%;left:8px;right:8px;height:2px;transform:translateY(-50%)}
+    #capModal{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.88);display:none;align-items:center;justify-content:center;padding:24px}
+    #capModal .box{max-width:420px;background:#111;border-radius:12px;padding:20px;line-height:1.5}
+    #capModal a{color:#64b5f6}
+    #capModal button{margin-top:14px;padding:10px 16px;border:0;border-radius:8px;background:#1976d2;color:#fff;font-weight:700}
+  </style>
+</head>
+<body>
+  <div id="aimHint"></div>
+  <div id="hud">Ready. Tap Enter AR.</div>
+  <div id="preUi"><button id="enterAR">Enter AR</button></div>
+  <div id="topActions"><button id="btnClose" type="button" title="Reset">×</button></div>
+
+  <div id="drawBar">
+    <button id="btnUndo" type="button">Undo Point</button>
+    <button id="btnClosePoly" class="primary" type="button" disabled>Close Area</button>
+  </div>
+
+  <div id="sheet">
+    <h2>Select Your Preference Tile</h2>
+    <div class="tiles">
+      <button class="tileOpt" data-tile="brick" type="button"><div class="ball" id="prevBrick"></div><span>Brick</span></button>
+      <button class="tileOpt active" data-tile="ceramic" type="button"><div class="ball" id="prevCeramic"></div><span>Ceramic</span></button>
+      <button class="tileOpt" data-tile="wood" type="button"><div class="ball" id="prevWood"></div><span>Wood</span></button>
+    </div>
+    <div class="row">
+      <button class="ghost" id="btnEditPoints" type="button">Edit Points</button>
+      <button id="btnApply" type="button">Apply Tiles</button>
+    </div>
+  </div>
+
+  <div id="capModal"><div class="box"><div id="capText"></div><button id="capClose">Close</button></div></div>
+
+  <script type="module">
+    import * as THREE from 'https://unpkg.com/three@0.185.1/build/three.module.js';
+
+    const TILE_SIZE = 0.20;
+    const FLOOR_OFFSET_Y = 0.002;
+    const GROUND_SAMPLE_COUNT = 15;
+    const GROUND_VARIANCE_MAX = 0.03;
+    const FLOOR_NORMAL_MIN_Y = 0.9;
+    const FLOOR_BELOW_CAMERA_MIN = 0.3;
+    const POINT_R = 0.04;
+    const CLOSE_FIRST_PX = 44;
+    const MIN_POINT_DIST = 0.08;
+
+    const hud = document.getElementById('hud');
+    const preUi = document.getElementById('preUi');
+    const topActions = document.getElementById('topActions');
+    const drawBar = document.getElementById('drawBar');
+    const sheet = document.getElementById('sheet');
+    const aimHint = document.getElementById('aimHint');
+    const enterButton = document.getElementById('enterAR');
+    const btnClose = document.getElementById('btnClose');
+    const btnApply = document.getElementById('btnApply');
+    const btnEditPoints = document.getElementById('btnEditPoints');
+    const btnUndo = document.getElementById('btnUndo');
+    const btnClosePoly = document.getElementById('btnClosePoly');
+    const capModal = document.getElementById('capModal');
+    const capText = document.getElementById('capText');
+    const capClose = document.getElementById('capClose');
+    capClose.addEventListener('click', () => { capModal.style.display = 'none'; });
+
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const hasNativeWebXR = typeof navigator.xr !== 'undefined' && typeof navigator.xr.requestSession === 'function';
+
+    if (isIOS && !hasNativeWebXR) {
+      window.location.replace('/ios.html');
+    }
+
+    let scene, camera, renderer, session = null, hitSource = null, transientHitSource = null;
+    let floorGroup, selectionGroup, borderLine, previewLine, fillMesh, floorReticle, groundPlane;
+    let usesLocalFloor = false;
+    const vertexMeshes = [];
+    let points = []; // stored in selectionGroup LOCAL space once locked
+    let closed = false;
+    let mode = 'idle'; // idle | locking | draw | closed | filled
+    let dragIndex = -1;
+    let masterGroundY = null;
+    const groundSamples = [];
+    let selectedTile = 'ceramic';
+    let pendingTap = null;
+    // World-lock: keep the drawn area stuck to the real floor when the camera moves.
+    let floorAnchor = null;
+    let anchorPending = false;
+    let selectionLocked = false; // true after first point (coords are local to selectionGroup)
+
+    const textures = { brick: null, ceramic: null, wood: null };
+
+    function status(msg){ console.log('[AR]', msg); hud.textContent = msg; }
+
+    function prepTex(t){
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      t.anisotropy = 8;
+      if ('colorSpace' in t) t.colorSpace = THREE.SRGBColorSpace;
+      t.needsUpdate = true;
+      return t;
+    }
+
+    function makeBrickTexture(){
+      const c = document.createElement('canvas'); c.width = c.height = 256;
+      const g = c.getContext('2d');
+      g.fillStyle = '#6b3a2a'; g.fillRect(0, 0, 256, 256);
+      g.fillStyle = '#8a4a36';
+      const bw = 60, bh = 28, gap = 4;
+      for (let row = 0; row < 12; row++) {
+        const off = (row % 2) * (bw / 2);
+        for (let col = -1; col < 6; col++) {
+          g.fillRect(col * (bw + gap) + off + gap, row * (bh + gap) + gap, bw, bh);
+        }
+      }
+      return prepTex(new THREE.CanvasTexture(c));
+    }
+    function makeCeramicTexture(){
+      const c = document.createElement('canvas'); c.width = c.height = 256;
+      const g = c.getContext('2d');
+      g.fillStyle = '#d8d5cf'; g.fillRect(0, 0, 256, 256);
+      g.strokeStyle = '#9e9a92'; g.lineWidth = 6; g.strokeRect(3, 3, 250, 250);
+      return prepTex(new THREE.CanvasTexture(c));
+    }
+    function makeWoodTexture(){
+      const c = document.createElement('canvas'); c.width = c.height = 256;
+      const g = c.getContext('2d');
+      g.fillStyle = '#b8894c'; g.fillRect(0, 0, 256, 256);
+      for (let i = 0; i < 18; i++) {
+        g.strokeStyle = `rgba(90,55,20,${0.18 + (i % 5) * 0.05})`;
+        g.lineWidth = 2 + (i % 3);
+        g.beginPath();
+        g.moveTo(0, i * 14);
+        g.bezierCurveTo(80, i * 14 + 8, 160, i * 14 - 6, 256, i * 14 + 2);
+        g.stroke();
+      }
+      return prepTex(new THREE.CanvasTexture(c));
+    }
+
+    function loadTextures(){
+      textures.brick = makeBrickTexture();
+      textures.wood = makeWoodTexture();
+      return new Promise((resolve) => {
+        new THREE.TextureLoader().load('/tile-sample.jpg', (tex) => {
+          textures.ceramic = prepTex(tex);
+          resolve();
+        }, undefined, () => {
+          textures.ceramic = makeCeramicTexture();
+          resolve();
+        });
+      });
+    }
+
+    function setPreviewBalls(){
+      const mapBall = (id, tex) => {
+        const el = document.getElementById(id);
+        const img = tex && tex.image;
+        if (img && img.toDataURL) el.style.backgroundImage = `url(${img.toDataURL()})`;
+        else if (img && img.src) el.style.backgroundImage = `url(${img.src})`;
+        else el.style.background = '#aaa';
+      };
+      mapBall('prevBrick', textures.brick);
+      mapBall('prevWood', textures.wood);
+      if (textures.ceramic) mapBall('prevCeramic', textures.ceramic);
+    }
+
+    function syncUi(){
+      const inAr = mode !== 'idle';
+      preUi.style.display = inAr ? 'none' : 'block';
+      topActions.classList.toggle('show', inAr);
+      drawBar.classList.toggle('show', inAr && mode === 'draw');
+      btnClosePoly.disabled = points.length < 3;
+      btnUndo.disabled = points.length === 0;
+      sheet.classList.toggle('open', mode === 'closed' || mode === 'filled');
+      aimHint.classList.toggle('on', mode === 'draw' || mode === 'locking');
+    }
+
+    async function checkARCapability(){
+      if (isIOS) {
+        return hasNativeWebXR
+          ? { ok: true }
+          : { ok: false, reason: 'ios-no-webxr', message: 'Redirecting to iOS 8th Wall experience…' };
+      }
+      if (!hasNativeWebXR) {
+        return { ok: false, reason: 'no-webxr-api', message: 'This browser does not support WebXR. Please open this page in Chrome on an Android device.' };
+      }
+      if (!navigator.xr.isSessionSupported) {
+        return { ok: false, reason: 'no-session-check', message: 'This browser cannot verify AR support. Try updating Chrome.' };
+      }
+      const supported = await navigator.xr.isSessionSupported('immersive-ar').catch(() => false);
+      if (!supported) {
+        return {
+          ok: false,
+          reason: 'no-arcore',
+          message: 'Your device or browser does not currently support AR. This is usually because Google Play Services for AR (ARCore) is missing, out of date, or unsupported on this device. <a href="https://play.google.com/store/apps/details?id=com.google.ar.core" target="_blank" rel="noopener">Install / update ARCore</a>, then try again.',
+        };
+      }
+      return { ok: true };
+    }
+
+    function showCapModal(message){
+      capText.innerHTML = message;
+      capModal.style.display = 'flex';
+    }
+
+    function isLikelyFloor(matrix, cameraY){
+      const m = new THREE.Matrix4().fromArray(matrix);
+      const normal = new THREE.Vector3(0, 1, 0).transformDirection(m);
+      const position = new THREE.Vector3().setFromMatrixPosition(m);
+      return normal.y > FLOOR_NORMAL_MIN_Y && position.y < cameraY - FLOOR_BELOW_CAMERA_MIN;
+    }
+
+    function tryLockGround(y){
+      groundSamples.push(y);
+      if (groundSamples.length > GROUND_SAMPLE_COUNT) groundSamples.shift();
+      if (groundSamples.length < GROUND_SAMPLE_COUNT) return null;
+      const avg = groundSamples.reduce((a, b) => a + b, 0) / groundSamples.length;
+      const spread = Math.max(...groundSamples) - Math.min(...groundSamples);
+      return spread <= GROUND_VARIANCE_MAX ? avg : null;
+    }
+
+    function floorY(){
+      // Local mesh height inside selectionGroup (group itself sits on the anchored floor).
+      if (selectionLocked) return FLOOR_OFFSET_Y;
+      if (usesLocalFloor) return FLOOR_OFFSET_Y;
+      return masterGroundY !== null ? masterGroundY + FLOOR_OFFSET_Y : FLOOR_OFFSET_Y;
+    }
+
+    const _raycaster = new THREE.Raycaster();
+    const _hit = new THREE.Vector3();
+    const _local = new THREE.Vector3();
+
+    function activeCamera(){
+      return renderer?.xr?.isPresenting ? renderer.xr.getCamera() : camera;
+    }
+
+    function resolveFloorPointWorld(clientX, clientY){
+      const cam = activeCamera();
+      const ndcX = (clientX / window.innerWidth) * 2 - 1;
+      const ndcY = -(clientY / window.innerHeight) * 2 + 1;
+      _raycaster.setFromCamera({ x: ndcX, y: ndcY }, cam);
+      const worldFloorY = usesLocalFloor
+        ? FLOOR_OFFSET_Y
+        : (masterGroundY !== null ? masterGroundY + FLOOR_OFFSET_Y : FLOOR_OFFSET_Y);
+      if (groundPlane) {
+        const hits = _raycaster.intersectObject(groundPlane, false);
+        if (hits.length) {
+          return { x: hits[0].point.x, y: worldFloorY, z: hits[0].point.z };
+        }
+      }
+      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -worldFloorY);
+      if (_raycaster.ray.intersectPlane(plane, _hit)) {
+        return { x: _hit.x, y: worldFloorY, z: _hit.z };
+      }
+      return null;
+    }
+
+    function worldToSelectionLocal(worldPoint){
+      selectionGroup.updateMatrixWorld(true);
+      _local.set(worldPoint.x, worldPoint.y, worldPoint.z);
+      selectionGroup.worldToLocal(_local);
+      return { x: _local.x, y: FLOOR_OFFSET_Y, z: _local.z };
+    }
+
+    function releaseAnchor(){
+      if (floorAnchor && floorAnchor.delete) {
+        try { floorAnchor.delete(); } catch (_) {}
+      }
+      floorAnchor = null;
+      anchorPending = false;
+      selectionLocked = false;
+      selectionGroup.position.set(0, 0, 0);
+      selectionGroup.quaternion.identity();
+    }
+
+    function tryCreateAnchorFromHit(hitResult){
+      if (floorAnchor || anchorPending || !hitResult || !hitResult.createAnchor) return;
+      anchorPending = true;
+      hitResult.createAnchor().then((anchor) => {
+        floorAnchor = anchor;
+        anchorPending = false;
+        status('Area locked to the floor. Keep outlining — it stays put when you move.');
+      }).catch(() => {
+        anchorPending = false;
+      });
+    }
+
+    function tryCreateAnchorFromPoint(frame, referenceSpace, worldPoint){
+      if (floorAnchor || anchorPending || !frame?.createAnchor) return;
+      anchorPending = true;
+      try {
+        const transform = new XRRigidTransform(
+          { x: worldPoint.x, y: worldPoint.y, z: worldPoint.z },
+          { x: 0, y: 0, z: 0, w: 1 }
+        );
+        frame.createAnchor(transform, referenceSpace).then((anchor) => {
+          floorAnchor = anchor;
+          anchorPending = false;
+          status('Area locked to the floor. Keep outlining — it stays put when you move.');
+        }).catch(() => {
+          anchorPending = false;
+        });
+      } catch (_) {
+        anchorPending = false;
+      }
+    }
+
+    function updateAnchorPose(frame, referenceSpace){
+      if (!floorAnchor || !frame.getPose) return;
+      const pose = frame.getPose(floorAnchor.anchorSpace, referenceSpace);
+      if (!pose) return;
+      // Stick selection to the anchored real-world pose (position only — keep tiles flat).
+      selectionGroup.position.set(
+        pose.transform.position.x,
+        pose.transform.position.y,
+        pose.transform.position.z
+      );
+    }
+
+    function buildPolygonFill(pts, texture){
+      if (pts.length < 3) return null;
+      const shape = new THREE.Shape();
+      shape.moveTo(pts[0].x, pts[0].z);
+      for (let i = 1; i < pts.length; i++) shape.lineTo(pts[i].x, pts[i].z);
+      shape.closePath();
+      const geo = new THREE.ShapeGeometry(shape);
+      const pos = geo.attributes.position;
+      const uv = geo.attributes.uv;
+      const fy = floorY();
+      for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i);
+        const z = pos.getY(i);
+        pos.setXYZ(i, x, fy, z);
+        uv.setXY(i, x / TILE_SIZE, z / TILE_SIZE);
+      }
+      pos.needsUpdate = true;
+      uv.needsUpdate = true;
+      geo.computeVertexNormals();
+      const map = texture.clone();
+      prepTex(map);
+      const mat = new THREE.MeshStandardMaterial({
+        map,
+        roughness: 0.72,
+        metalness: 0,
+        side: THREE.DoubleSide,
+        depthTest: true,
+        depthWrite: true,
+        polygonOffset: true,
+        polygonOffsetFactor: -1,
+      });
+      return new THREE.Mesh(geo, mat);
+    }
+
+    function clearFill(){
+      if (fillMesh) {
+        selectionGroup.remove(fillMesh);
+        fillMesh.geometry.dispose();
+        fillMesh.material.map?.dispose?.();
+        fillMesh.material.dispose();
+        fillMesh = null;
+      }
+    }
+
+    function rebuildPolyline(includeClose){
+      const n = points.length;
+      if (n === 0) {
+        borderLine.visible = false;
+        previewLine.visible = false;
+        return;
+      }
+      const closedCount = includeClose && n >= 3 ? n + 1 : n;
+      const arr = new Float32Array(closedCount * 3);
+      const fy = floorY() + 0.004;
+      for (let i = 0; i < n; i++) {
+        arr[i * 3] = points[i].x;
+        arr[i * 3 + 1] = fy;
+        arr[i * 3 + 2] = points[i].z;
+      }
+      if (includeClose && n >= 3) {
+        arr[n * 3] = points[0].x;
+        arr[n * 3 + 1] = fy;
+        arr[n * 3 + 2] = points[0].z;
+      }
+      borderLine.geometry.setAttribute('position', new THREE.BufferAttribute(arr, 3));
+      borderLine.geometry.attributes.position.needsUpdate = true;
+      borderLine.geometry.computeBoundingSphere();
+      borderLine.visible = true;
+      borderLine.material.color.setHex(mode === 'filled' ? 0xffffff : 0x2f7bff);
+    }
+
+    function syncVertices(){
+      while (vertexMeshes.length < points.length) {
+        const m = new THREE.Mesh(
+          new THREE.SphereGeometry(POINT_R, 16, 12),
+          new THREE.MeshBasicMaterial({ color: 0xffffff })
+        );
+        selectionGroup.add(m);
+        vertexMeshes.push(m);
+      }
+      const fy = floorY() + 0.012;
+      for (let i = 0; i < vertexMeshes.length; i++) {
+        if (i < points.length) {
+          vertexMeshes[i].position.set(points[i].x, fy, points[i].z);
+          vertexMeshes[i].visible = mode !== 'filled';
+          vertexMeshes[i].material.color.setHex(i === 0 && mode === 'draw' ? 0x4caf50 : 0xffffff);
+          vertexMeshes[i].scale.setScalar(i === 0 && mode === 'draw' ? 1.25 : 1);
+        } else {
+          vertexMeshes[i].visible = false;
+        }
+      }
+    }
+
+    function updatePreviewTo(aim){
+      if (mode !== 'draw' || points.length === 0 || !aim) {
+        previewLine.visible = false;
+        return;
+      }
+      const last = points[points.length - 1];
+      const fy = floorY() + 0.005;
+      const arr = new Float32Array([
+        last.x, fy, last.z,
+        aim.x, fy, aim.z,
+      ]);
+      previewLine.geometry.setAttribute('position', new THREE.BufferAttribute(arr, 3));
+      previewLine.geometry.attributes.position.needsUpdate = true;
+      previewLine.visible = true;
+      try { previewLine.computeLineDistances(); } catch (_) {}
+    }
+
+    function refresh(){
+      rebuildPolyline(closed || mode !== 'draw');
+      syncVertices();
+      syncUi();
+    }
+
+    function addPoint(worldPoint, frame, referenceSpace, hitResult){
+      if (!selectionLocked) {
+        // First point becomes the anchor origin — later points are local offsets.
+        selectionGroup.position.set(worldPoint.x, worldPoint.y, worldPoint.z);
+        selectionGroup.quaternion.identity();
+        selectionLocked = true;
+        points.push({ x: 0, y: FLOOR_OFFSET_Y, z: 0 });
+        if (hitResult) tryCreateAnchorFromHit(hitResult);
+        else if (frame && referenceSpace) tryCreateAnchorFromPoint(frame, referenceSpace, worldPoint);
+        refresh();
+        status('Point 1 set & locked to the floor. Keep tapping corners of the area.');
+        return;
+      }
+
+      const local = worldToSelectionLocal(worldPoint);
+      if (points.length) {
+        const last = points[points.length - 1];
+        if (Math.hypot(local.x - last.x, local.z - last.z) < MIN_POINT_DIST) return;
+      }
+      points.push(local);
+      refresh();
+      status(points.length < 3
+        ? `Point ${points.length} set — keep tapping corners of the floor area.`
+        : `Point ${points.length} set — tap the green first point (or Close Area) to finish.`);
+    }
+
+    function undoPoint(){
+      if (!points.length || mode === 'filled') return;
+      points.pop();
+      closed = false;
+      mode = 'draw';
+      clearFill();
+      if (!points.length) {
+        releaseAnchor();
+      }
+      refresh();
+      status(points.length
+        ? `Removed last point (${points.length} left). Tap to add more.`
+        : 'All points cleared. Tap the floor to start the area.');
+    }
+
+    function closePolygon(){
+      if (points.length < 3) {
+        status('Need at least 3 points to close the area.');
+        return;
+      }
+      closed = true;
+      mode = 'closed';
+      clearFill();
+      previewLine.visible = false;
+      refresh();
+      status('Area closed & locked to the floor. Pick a tile, then Apply Tiles.');
+    }
+
+    function applyFill(){
+      if (points.length < 3) {
+        status('Draw and close an area first (3+ points).');
+        return;
+      }
+      if (!closed) closePolygon();
+      clearFill();
+      const tex = textures[selectedTile] || textures.ceramic;
+      fillMesh = buildPolygonFill(points, tex);
+      if (!fillMesh) return;
+      selectionGroup.add(fillMesh);
+      mode = 'filled';
+      refresh();
+      status('Tiles locked to the floor — move around, the area stays put.');
+    }
+
+    function clearAll(){
+      points = [];
+      closed = false;
+      mode = masterGroundY !== null || usesLocalFloor ? 'draw' : 'locking';
+      dragIndex = -1;
+      clearFill();
+      previewLine.visible = false;
+      releaseAnchor();
+      refresh();
+      status(mode === 'locking'
+        ? 'Slowly pan across the floor to lock tracking…'
+        : 'Tap points on the floor to outline the area (polygonal ROI).');
+    }
+
+    function enterEditPoints(){
+      if (!points.length) return;
+      mode = 'draw';
+      closed = false;
+      clearFill();
+      refresh();
+      status('Editing points — drag a white dot, tap to add, or Close Area when done.');
+    }
+
+    function pickVertex(clientX, clientY){
+      let best = -1, bestDist = CLOSE_FIRST_PX;
+      for (let i = 0; i < points.length; i++) {
+        if (!vertexMeshes[i]) continue;
+        const p = vertexMeshes[i].position.clone().project(camera);
+        const sx = (p.x * 0.5 + 0.5) * window.innerWidth;
+        const sy = (-p.y * 0.5 + 0.5) * window.innerHeight;
+        const d = Math.hypot(sx - clientX, sy - clientY);
+        if (d < bestDist) { bestDist = d; best = i; }
+      }
+      return best;
+    }
+
+    function resolveTapWorld(clientX, clientY, frame, referenceSpace){
+      // Prefer a real hit-test result so we can create a surface-attached anchor.
+      if (frame && transientHitSource) {
+        try {
+          const transients = frame.getHitTestResultsForTransientInput(transientHitSource);
+          for (const tr of transients) {
+            for (const result of tr.results) {
+              const pose = result.getPose(referenceSpace);
+              if (!pose) continue;
+              const cameraY = camera.position.y;
+              if (!isLikelyFloor(pose.transform.matrix, cameraY) && !usesLocalFloor) continue;
+              const p = pose.transform.position;
+              return {
+                world: { x: p.x, y: usesLocalFloor ? FLOOR_OFFSET_Y : p.y, z: p.z },
+                hitResult: result,
+              };
+            }
+          }
+        } catch (_) {}
+      }
+      if (frame && hitSource) {
+        const results = frame.getHitTestResults(hitSource);
+        if (results.length) {
+          const pose = results[0].getPose(referenceSpace);
+          if (pose) {
+            // Only use center hit if tap is near screen center (fallback).
+            const cx = clientX / window.innerWidth;
+            const cy = clientY / window.innerHeight;
+            if (Math.abs(cx - 0.5) < 0.2 && Math.abs(cy - 0.55) < 0.25) {
+              const p = pose.transform.position;
+              return {
+                world: { x: p.x, y: usesLocalFloor ? FLOOR_OFFSET_Y : p.y, z: p.z },
+                hitResult: results[0],
+              };
+            }
+          }
+        }
+      }
+      const world = resolveFloorPointWorld(clientX, clientY);
+      return world ? { world, hitResult: null } : null;
+    }
+
+    function onPointerDown(e){
+      if (mode === 'idle' || sheet.contains(e.target) || drawBar.contains(e.target) || btnClose.contains(e.target)) return;
+      // After close/fill, don't let random taps move the locked area — Edit Points only.
+      if (mode === 'filled') return;
+      const t = e.changedTouches ? e.changedTouches[0] : e;
+      pendingTap = { x: t.clientX, y: t.clientY };
+
+      if (mode === 'draw' || mode === 'closed') {
+        const idx = pickVertex(t.clientX, t.clientY);
+        if (idx >= 0) {
+          if (mode === 'draw' && idx === 0 && points.length >= 3) {
+            pendingTap = null;
+            closePolygon();
+            e.preventDefault();
+            return;
+          }
+          if (mode === 'draw') {
+            dragIndex = idx;
+            clearFill();
+            syncUi();
+            pendingTap = null;
+            e.preventDefault();
+          }
+        }
+      }
+    }
+
+    function onPointerMove(e){
+      if (dragIndex < 0 || mode !== 'draw') return;
+      const t = e.changedTouches ? e.changedTouches[0] : e;
+      const world = resolveFloorPointWorld(t.clientX, t.clientY);
+      if (!world) return;
+      points[dragIndex] = worldToSelectionLocal(world);
+      refresh();
+      e.preventDefault();
+    }
+
+    function onPointerUp(){
+      dragIndex = -1;
+    }
+
+    function processPendingTap(frame, referenceSpace){
+      if (!pendingTap || dragIndex >= 0) return;
+      const { x, y } = pendingTap;
+      pendingTap = null;
+      if (mode !== 'draw') return;
+      const resolved = resolveTapWorld(x, y, frame, referenceSpace);
+      if (!resolved) {
+        status('No floor there — aim at open ground, then tap.');
+        return;
+      }
+      addPoint(resolved.world, frame, referenceSpace, resolved.hitResult);
+    }
+
+    function init(){
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(70, innerWidth / innerHeight, 0.01, 50);
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setSize(innerWidth, innerHeight);
+      renderer.xr.enabled = true;
+      document.body.appendChild(renderer.domElement);
+
+      scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 0.85));
+
+      floorGroup = new THREE.Group();
+      selectionGroup = new THREE.Group();
+      scene.add(floorGroup);
+      scene.add(selectionGroup);
+
+      floorReticle = new THREE.Mesh(
+        new THREE.RingGeometry(0.08, 0.11, 32).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial({ color: 0xffff00, side: THREE.DoubleSide })
+      );
+      floorReticle.visible = false;
+      scene.add(floorReticle);
+
+      groundPlane = new THREE.Mesh(
+        new THREE.PlaneGeometry(200, 200).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial({ visible: false })
+      );
+      groundPlane.position.y = FLOOR_OFFSET_Y;
+      scene.add(groundPlane);
+
+      borderLine = new THREE.Line(
+        new THREE.BufferGeometry(),
+        new THREE.LineBasicMaterial({ color: 0x2f7bff })
+      );
+      borderLine.visible = false;
+      selectionGroup.add(borderLine);
+
+      previewLine = new THREE.Line(
+        new THREE.BufferGeometry(),
+        new THREE.LineDashedMaterial({ color: 0x90caf9, dashSize: 0.05, gapSize: 0.03 })
+      );
+      previewLine.visible = false;
+      selectionGroup.add(previewLine);
+
+      renderer.domElement.addEventListener('pointerdown', onPointerDown, { passive: false });
+      renderer.domElement.addEventListener('pointermove', onPointerMove, { passive: false });
+      renderer.domElement.addEventListener('pointerup', onPointerUp, { passive: true });
+      renderer.domElement.addEventListener('pointercancel', onPointerUp, { passive: true });
+
+      addEventListener('resize', () => {
+        camera.aspect = innerWidth / innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(innerWidth, innerHeight);
+      });
+
+      syncUi();
+    }
+
+    async function startAR(){
+      const capability = await checkARCapability();
+      if (!capability.ok) {
+        if (capability.reason === 'ios-no-webxr') {
+          window.location.href = '/ios.html';
+          return;
+        }
+        showCapModal(capability.message);
+        return;
+      }
+
+      const basic = {
+        requiredFeatures: ['hit-test'],
+        optionalFeatures: ['local-floor', 'dom-overlay', 'plane-detection', 'anchors'],
+        domOverlay: { root: document.body },
+      };
+      const depthEnhanced = {
+        requiredFeatures: ['hit-test'],
+        optionalFeatures: ['local-floor', 'dom-overlay', 'plane-detection', 'depth-sensing', 'anchors'],
+        domOverlay: { root: document.body },
+        depthSensing: {
+          usagePreference: ['gpu-optimized', 'cpu-optimized'],
+          dataFormatPreference: ['luminance-alpha', 'float32'],
+        },
+      };
+
+      const requests = isIOS
+        ? [basic]
+        : [
+          depthEnhanced,
+          basic,
+          { requiredFeatures: ['hit-test'], optionalFeatures: ['anchors', 'dom-overlay'], domOverlay: { root: document.body } },
+        ];
+
+      for (const options of requests) {
+        try {
+          session = await navigator.xr.requestSession('immersive-ar', options);
+          await onSessionStarted(session);
+          return;
+        } catch (_) {
+          status('Trying a compatible AR session…');
+        }
+      }
+      showCapModal('AR could not start on this device. Try restarting Chrome or updating ARCore.');
+    }
+
+    async function onSessionStarted(activeSession){
+      enterButton.disabled = true;
+      groundSamples.length = 0;
+      masterGroundY = null;
+      mode = 'locking';
+      syncUi();
+
+      try {
+        renderer.xr.setReferenceSpaceType('local-floor');
+        usesLocalFloor = true;
+      } catch (_) {
+        renderer.xr.setReferenceSpaceType('viewer');
+        usesLocalFloor = false;
+      }
+
+      await renderer.xr.setSession(activeSession);
+      if (usesLocalFloor) {
+        masterGroundY = 0;
+        groundPlane.position.y = FLOOR_OFFSET_Y;
+        mode = 'draw';
+        status('Floor ready. Tap points on the floor to outline your area.');
+        syncUi();
+      }
+
+      activeSession.addEventListener('end', () => {
+        session = null;
+        hitSource = null;
+        transientHitSource = null;
+        mode = 'idle';
+        usesLocalFloor = false;
+        points = [];
+        closed = false;
+        masterGroundY = null;
+        clearFill();
+        releaseAnchor();
+        borderLine.visible = false;
+        previewLine.visible = false;
+        floorReticle.visible = false;
+        enterButton.disabled = false;
+        syncUi();
+        status('AR ended.');
+      });
+
+      renderer.setAnimationLoop(render);
+
+      try {
+        const viewer = await activeSession.requestReferenceSpace('viewer');
+        hitSource = await activeSession.requestHitTestSource({ space: viewer });
+        if (activeSession.requestHitTestSourceForTransientInput) {
+          try {
+            transientHitSource = await activeSession.requestHitTestSourceForTransientInput({
+              profile: 'generic-touchscreen',
+            });
+          } catch (_) {}
+        }
+        if (!usesLocalFloor) status('Slowly pan across the floor to lock tracking…');
+      } catch (_) {
+        status('Camera active. Tap the floor to start drawing your area.');
+        mode = 'draw';
+        syncUi();
+      }
+    }
+
+    function render(time, frame){
+      if (frame) {
+        const referenceSpace = renderer.xr.getReferenceSpace();
+        updateAnchorPose(frame, referenceSpace);
+
+        let centerFloorHit = null;
+        if (hitSource) {
+          const results = frame.getHitTestResults(hitSource);
+          const viewerPose = frame.getViewerPose(referenceSpace);
+          const cameraY = viewerPose ? viewerPose.transform.position.y : 0;
+
+          if (results.length) {
+            const pose = results[0].getPose(referenceSpace);
+            if (pose && (usesLocalFloor || isLikelyFloor(pose.transform.matrix, cameraY))) {
+              const p = pose.transform.position;
+              centerFloorHit = {
+                x: p.x,
+                y: usesLocalFloor ? FLOOR_OFFSET_Y : p.y,
+                z: p.z,
+              };
+
+              if (mode === 'locking') {
+                const locked = tryLockGround(p.y);
+                if (locked !== null) {
+                  masterGroundY = locked;
+                  groundPlane.position.y = masterGroundY + FLOOR_OFFSET_Y;
+                  mode = 'draw';
+                  syncUi();
+                  status('Floor locked. Tap points on the floor to outline your area.');
+                } else {
+                  status(`Stabilizing floor (${groundSamples.length}/${GROUND_SAMPLE_COUNT})…`);
+                }
+              }
+
+              floorReticle.visible = mode === 'locking';
+              if (floorReticle.visible) {
+                floorReticle.position.set(p.x, (usesLocalFloor ? FLOOR_OFFSET_Y : p.y) + 0.01, p.z);
+              }
+            } else {
+              floorReticle.visible = false;
+            }
+          } else {
+            floorReticle.visible = false;
+          }
+        }
+
+        if (mode === 'draw' && centerFloorHit) {
+          const aimLocal = selectionLocked
+            ? worldToSelectionLocal(centerFloorHit)
+            : centerFloorHit;
+          updatePreviewTo(aimLocal);
+        } else if (mode !== 'draw') {
+          previewLine.visible = false;
+        }
+
+        processPendingTap(frame, referenceSpace);
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    document.querySelectorAll('.tileOpt').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tileOpt').forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        selectedTile = btn.dataset.tile;
+        if (mode === 'filled') applyFill();
+      });
+    });
+    btnApply.addEventListener('click', () => applyFill());
+    btnEditPoints.addEventListener('click', () => enterEditPoints());
+    btnClose.addEventListener('click', () => clearAll());
+    btnUndo.addEventListener('click', () => undoPoint());
+    btnClosePoly.addEventListener('click', () => closePolygon());
+    enterButton.addEventListener('click', () => startAR().catch((err) => showCapModal('Unexpected error starting AR: ' + err.message)));
+
+    loadTextures().then(() => {
+      setPreviewBalls();
+      init();
+    });
+  </script>
+</body>
+</html>
