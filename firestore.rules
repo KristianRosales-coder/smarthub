@@ -1,0 +1,12 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Credits & generation logs are server-only (Admin SDK from Cloud Functions).
+    match /aiCredits/{id} {
+      allow read, write: if false;
+    }
+    match /aiGenerations/{id} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -9,7 +9,10 @@
     "build": "vite build && node build.js",
     "preview": "vite preview",
     "serve": "node server.js",
-    "start": "vite"
+    "start": "vite",
+    "functions:install": "npm --prefix functions install",
+    "deploy:functions": "firebase deploy --only functions,firestore:rules",
+    "deploy:hosting": "npm run build && firebase deploy --only hosting"
   },
   "dependencies": {
     "firebase": "^12.18.0",

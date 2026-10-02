@@ -5,8 +5,11 @@ import {
   signOut,
 } from 'firebase/auth';
 import { auth } from './firebase.js';
+import { openGenAiFlow } from './genai/flow.js';
 
-/** Sample catalog until IMS / Realtime DB products are wired. */
+/** Sample catalog until IMS / Realtime DB products are wired.
+ * Extra fields feed the server-side Gen AI prompt template.
+ */
 const CATALOG = [
   {
     id: 'porcelain-10011101',
@@ -14,6 +17,12 @@ const CATALOG = [
     sku: '10011101',
     image: '/tile-sample.jpg',
     kind: 'porcelain',
+    material: 'porcelain',
+    color: 'neutral stone-gray',
+    finish: 'matte',
+    sizeCm: '60x60',
+    pattern: 'straight grid',
+    groutColor: 'light gray',
   },
   {
     id: 'ceramic-10011102',
@@ -21,12 +30,37 @@ const CATALOG = [
     sku: '10011102',
     image: '/tile-sample.jpg',
     kind: 'ceramic',
+    material: 'ceramic',
+    color: 'warm beige',
+    finish: 'glossy',
+    sizeCm: '30x60',
+    pattern: 'brick / running bond',
+    groutColor: 'ivory',
   },
 ];
 
+const CART_KEY = 'tddc_walkin_cart';
 const app = document.getElementById('app');
 let selectedTile = null;
-let authReady = false;
+
+function loadCart() {
+  try { return JSON.parse(localStorage.getItem(CART_KEY) || '[]'); }
+  catch { return []; }
+}
+function saveCart(items) {
+  localStorage.setItem(CART_KEY, JSON.stringify(items));
+}
+function addToCart(tile) {
+  const cart = loadCart();
+  cart.push({
+    id: tile.id,
+    name: tile.name,
+    sku: tile.sku,
+    addedAt: new Date().toISOString(),
+  });
+  saveCart(cart);
+  return cart;
+}
 
 function el(html) {
   const t = document.createElement('template');
@@ -104,10 +138,8 @@ function renderLogin(errorMessage = '') {
     err.textContent = '';
     btn.disabled = true;
     btn.textContent = 'Signing in…';
-    const email = form.email.value.trim();
-    const password = form.password.value;
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      await signInWithEmailAndPassword(auth, form.email.value.trim(), form.password.value);
     } catch (ex) {
       err.textContent = friendlyAuthError(ex);
       err.classList.add('show');
@@ -131,6 +163,7 @@ function friendlyAuthError(ex) {
 }
 
 function renderHome(user) {
+  const cartCount = loadCart().length;
   const cards = CATALOG.map((tile) => `
     <button class="tile-card" type="button" data-id="${tile.id}">
       <div class="preview" style="background-image:url('${tile.image}')"></div>
@@ -149,6 +182,7 @@ function renderHome(user) {
       <header class="topbar">
         <img class="logo" src="/tile_depot_header.jpg" alt="Tile Depot Discount Center">
         <div class="user">
+          <button class="cart-chip" type="button" id="cartBtn">Cart (${cartCount})</button>
           <span>${user.email || 'Staff'}</span>
           <button class="btn-ghost" type="button" id="signOutBtn">Sign out</button>
         </div>
@@ -172,6 +206,7 @@ function renderHome(user) {
   `));
 
   document.getElementById('signOutBtn').addEventListener('click', () => signOut(auth));
+  document.getElementById('cartBtn').addEventListener('click', showCart);
   app.querySelectorAll('.tile-card').forEach((card) => {
     card.addEventListener('click', () => {
       selectedTile = CATALOG.find((t) => t.id === card.dataset.id);
@@ -180,19 +215,53 @@ function renderHome(user) {
   });
 }
 
+function showCart() {
+  const cart = loadCart();
+  const lines = cart.length
+    ? cart.map((c, i) => `<li><strong>${c.name}</strong> · SKU ${c.sku}</li>`).join('')
+    : '<li>Cart is empty. Add tiles from AI or catalog preview.</li>';
+  const backdrop = el(`
+    <div class="modal-backdrop" role="dialog" aria-modal="true">
+      <div class="modal" style="grid-template-rows:auto 1fr auto">
+        <div class="modal-head">
+          <h2>Walk-in Cart</h2>
+          <button class="modal-close" type="button" id="cartClose">×</button>
+        </div>
+        <div class="modal-body" style="padding:16px">
+          <p style="margin:0 0 12px;color:var(--muted);font-size:.9rem">Present this list to the cashier. Payment stays on your existing POS.</p>
+          <ol style="margin:0;padding-left:1.2rem;line-height:1.6">${lines}</ol>
+        </div>
+        <div class="modal-actions" style="grid-template-columns:1fr">
+          <button class="btn-secondary" type="button" id="cartClear">Clear cart</button>
+        </div>
+      </div>
+    </div>
+  `);
+  app.appendChild(backdrop);
+  const close = () => backdrop.remove();
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
+  backdrop.querySelector('#cartClose').addEventListener('click', close);
+  backdrop.querySelector('#cartClear').addEventListener('click', () => {
+    saveCart([]);
+    close();
+    const user = auth.currentUser;
+    if (user) renderHome(user);
+  });
+}
+
 function openTileModal(tile) {
   if (!tile) return;
   const backdrop = el(`
     <div class="modal-backdrop" role="dialog" aria-modal="true" aria-label="${tile.name}">
-      <div class="modal">
+      <div class="modal" id="tileModal">
         <div class="modal-head">
           <h2>${tile.name}</h2>
           <button class="modal-close" type="button" id="modalClose" aria-label="Close">×</button>
         </div>
-        <div class="modal-body">
+        <div class="modal-body" id="modalBody">
           <div class="hero" style="background-image:url('${tile.image}')"></div>
         </div>
-        <div class="modal-actions">
+        <div class="modal-actions" id="modalActions">
           <button class="viz-btn" type="button" id="btnAr">
             ${arBadge()}
             <span class="label">VISUALIZE TILE</span>
@@ -220,28 +289,37 @@ function openTileModal(tile) {
       name: tile.name,
       image: tile.image,
     });
-    // Android WebXR / desktop → ar.html; iPhone → ios.html
     const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
       || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     window.location.href = isIOS ? `/ios.html?${params}` : `/ar.html?${params}`;
   });
 
   document.getElementById('btnAi').addEventListener('click', () => {
-    const body = backdrop.querySelector('.modal-body');
-    body.innerHTML = `
-      <div class="hero" style="background-image:url('${tile.image}')"></div>
-      <div class="ai-placeholder">
-        <strong>AI Visualize</strong> is next — upload a photo of the customer’s space
-        and preview this tile with Generative AI. Coming in a follow-up build.
-      </div>
-    `;
+    const modal = document.getElementById('tileModal');
+    const body = document.getElementById('modalBody');
+    const actions = document.getElementById('modalActions');
+    actions.style.display = 'none';
+    modal.querySelector('.modal-head h2').textContent = 'Visualize in My Space';
+    openGenAiFlow({
+      host: body,
+      tile,
+      mode: 'kiosk',
+      onClose: close,
+      onAddToCart: (t) => {
+        addToCart(t);
+        const user = auth.currentUser;
+        if (user) {
+          // refresh cart chip if still on home behind modal
+        }
+      },
+      onTryAnother: close,
+    });
   });
 }
 
 function boot() {
   showSplashThen(() => {
     onAuthStateChanged(auth, (user) => {
-      authReady = true;
       if (user) renderHome(user);
       else renderLogin();
     });
