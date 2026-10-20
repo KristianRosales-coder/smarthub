@@ -1,15 +1,23 @@
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
-const { defineSecret } = require('firebase-functions/params');
+const { defineSecret, defineString } = require('firebase-functions/params');
 const admin = require('firebase-admin');
+const nodemailer = require('nodemailer');
 const { GoogleGenAI } = require('@google/genai');
 const { buildFloorReplacePrompt } = require('./prompt');
 const { prepareRoomImage, prepareTileReference } = require('./validate');
 const { assertCanGenerate, deductCredit, PUBLIC_START_CREDITS, KIOSK_START_CREDITS } = require('./credits');
+const { isValidEmail, buildOrderSummaryEmail } = require('./email');
 
 if (!admin.apps.length) admin.initializeApp();
 const db = admin.firestore();
 
 const geminiApiKey = defineSecret('GEMINI_API_KEY');
+/**
+ * Store Gmail for order-summary mail (Spark-friendly — no Secret Manager / Blaze).
+ * Set in functions/.env (see .env.example), then deploy functions.
+ */
+const gmailUser = defineString('GMAIL_USER', { default: '' });
+const gmailAppPassword = defineString('GMAIL_APP_PASSWORD', { default: '' });
 const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image';
 
 function asHttpsError(err) {
@@ -144,3 +152,72 @@ exports.getAiCredits = onCall({ region: 'us-central1', cors: true }, async (requ
     throw asHttpsError(err);
   }
 });
+
+/**
+ * Callable: sendOrderSummaryEmail
+ * Staff-only. Emails the walk-in order summary to the customer (not a legal receipt).
+ *
+ * Configure without Blaze — create functions/.env:
+ *   GMAIL_USER=yourstore@gmail.com
+ *   GMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx
+ * Then: firebase deploy --only functions
+ */
+exports.sendOrderSummaryEmail = onCall(
+  {
+    region: 'us-central1',
+    timeoutSeconds: 30,
+    cors: true,
+  },
+  async (request) => {
+    if (!request.auth?.uid) {
+      throw new HttpsError('unauthenticated', 'Staff sign-in required to email the customer.');
+    }
+
+    const order = request.data?.order || {};
+    const to = String(order.customerEmail || '').trim();
+    if (!isValidEmail(to)) {
+      throw new HttpsError('invalid-argument', 'A valid customer email is required.');
+    }
+    if (!Array.isArray(order.items) || order.items.length === 0) {
+      throw new HttpsError('invalid-argument', 'Order has no items to email.');
+    }
+
+    const user = gmailUser.value().trim();
+    const pass = gmailAppPassword.value().replace(/\s+/g, '');
+    if (!user || !pass) {
+      throw new HttpsError(
+        'failed-precondition',
+        'Email is not configured. Add GMAIL_USER and GMAIL_APP_PASSWORD to functions/.env, then redeploy functions.'
+      );
+    }
+
+    const { subject, html, text } = buildOrderSummaryEmail(order);
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user, pass },
+    });
+
+    try {
+      const info = await transporter.sendMail({
+        from: `"Tile Depot Discount Center" <${user}>`,
+        to,
+        replyTo: user,
+        subject,
+        text,
+        html,
+      });
+
+      return {
+        ok: true,
+        to,
+        messageId: info.messageId || null,
+      };
+    } catch (err) {
+      console.error('sendOrderSummaryEmail', err);
+      throw new HttpsError(
+        'internal',
+        err?.message || 'Could not send the order summary email. Check Gmail App Password settings.'
+      );
+    }
+  }
+);

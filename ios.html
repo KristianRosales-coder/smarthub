@@ -2,21 +2,61 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover,user-scalable=no">
   <title>AR Floor Tiles — iOS (8th Wall)</title>
   <style>
-    html,body{height:100%;margin:0;background:#000;color:#fff;font-family:system-ui,-apple-system,sans-serif;overflow:hidden;touch-action:none}
+    html,body{height:100%;margin:0;background:#000;color:#fff;font-family:system-ui,-apple-system,sans-serif;overflow:hidden;touch-action:none;-ms-touch-action:none;-webkit-user-select:none;user-select:none}
     #camerafeed{position:fixed;inset:0;width:100%;height:100%;display:block}
-    #hud{position:fixed;top:max(12px,env(safe-area-inset-top));left:12px;right:60px;z-index:6;padding:10px 12px;border-radius:8px;background:rgba(0,0,0,.72);font-size:13px;line-height:1.35;pointer-events:none}
-    #topActions{position:fixed;top:max(12px,env(safe-area-inset-top));right:12px;z-index:7}
-    #topActions button{width:40px;height:40px;border:0;border-radius:50%;background:rgba(255,255,255,.92);color:#111;font-size:20px;font-weight:700}
-    #drawBar{position:fixed;left:12px;right:12px;bottom:max(16px,env(safe-area-inset-bottom));z-index:8;display:none;gap:8px;justify-content:center;flex-wrap:wrap}
+    #hud{position:fixed;top:max(12px,env(safe-area-inset-top));left:60px;right:100px;z-index:6;padding:10px 12px;border-radius:8px;background:rgba(0,0,0,.72);font-size:13px;line-height:1.35;pointer-events:none}
+    #btnBack{position:fixed;top:max(12px,env(safe-area-inset-top));left:12px;z-index:10;width:40px;height:40px;border:0;border-radius:50%;background:rgba(255,255,255,.92);color:#111;font-size:20px;font-weight:700;line-height:1}
+    #topActions{position:fixed;top:max(12px,env(safe-area-inset-top));right:12px;z-index:7;display:flex;gap:8px}
+    #topActions button{min-width:40px;height:40px;padding:0 10px;border:0;border-radius:20px;background:rgba(255,255,255,.92);color:#111;font-size:13px;font-weight:700}
+    #topActions button.off{opacity:.45}
+    #btnModeQuick{position:fixed;left:50%;transform:translateX(-50%);bottom:max(110px,calc(100px + env(safe-area-inset-bottom)));z-index:8;display:none;padding:8px 14px;border:1px solid rgba(255,255,255,.28);border-radius:999px;background:rgba(0,0,0,.55);color:#fff;font-size:13px;font-weight:600;white-space:nowrap;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+    #btnModeQuick.show{display:block}
+    #drawBar{position:fixed;left:12px;right:12px;bottom:max(16px,env(safe-area-inset-bottom));z-index:8;display:none;align-items:center;justify-content:space-between;gap:12px}
     #drawBar.show{display:flex}
-    #drawBar button{padding:12px 16px;border:0;border-radius:10px;background:rgba(255,255,255,.16);color:#fff;font-size:14px;font-weight:700}
-    #drawBar button.primary{background:#1976d2}
-    #drawBar button:disabled{opacity:.4}
-    #sheet{position:fixed;left:0;right:0;bottom:0;z-index:9;padding:16px 16px max(18px,env(safe-area-inset-bottom));background:rgba(40,40,40,.9);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);transform:translateY(110%);transition:transform .28s ease;border-radius:18px 18px 0 0}
+    /* Hard mute — sheet already has Undo / Apply; never let the bar bleed through. */
+    body.arSheetOpen #drawBar,
+    body.arSheetOpen #btnModeQuick,
+    body.arSheetOpen #aimHint,
+    body.arSheetOpen #aimDot,
+    body.arSheetOpen #measure{display:none!important;opacity:0!important;pointer-events:none!important}
+    #drawBar .sideBtn{flex:1;max-width:120px;padding:12px 10px;border:0;border-radius:10px;background:rgba(255,255,255,.16);color:#fff;font-size:13px;font-weight:700}
+    #drawBar .sideBtn.primary{background:#1976d2}
+    #drawBar .sideBtn:disabled{opacity:.4}
+    #btnSnap{width:78px;height:78px;border-radius:50%;border:4px solid #fff;background:transparent;padding:0;flex-shrink:0;position:relative}
+    #btnSnap::after{content:"";position:absolute;inset:7px;border-radius:50%;background:#fff}
+    #btnSnap:active{transform:scale(.92)}
+    #btnSnap:active::after{background:#e8e8e8}
+    #btnSnap:disabled{opacity:.35}
+    .arPrompt{position:fixed;inset:0;z-index:21;background:rgba(0,0,0,.72);display:none;align-items:flex-end;justify-content:center;padding:16px}
+    .arPrompt.open{display:flex}
+    .arPrompt .card{width:100%;max-width:420px;background:#1c1c1c;border-radius:16px;padding:18px 16px max(18px,env(safe-area-inset-bottom))}
+    .arPrompt h3{margin:0 0 8px;font-size:17px}
+    .arPrompt p{margin:0 0 16px;opacity:.85;font-size:14px;line-height:1.4}
+    .arPrompt .row{display:flex;gap:10px;flex-wrap:wrap}
+    .arPrompt .row button{flex:1;min-width:120px;padding:12px 14px;border:0;border-radius:10px;font-size:15px;font-weight:700}
+    .arPrompt .yes{background:#1976d2;color:#fff}
+    .arPrompt .no{background:rgba(255,255,255,.14);color:#fff}
+    .arPrompt .sizeChips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 14px}
+    .arPrompt .sizeChips button{flex:0 0 auto;padding:10px 12px;border:0;border-radius:999px;background:rgba(255,255,255,.14);color:#fff;font-size:13px;font-weight:700}
+    .arPrompt .sizeChips button.active{background:#1976d2}
+    .arPrompt .step{display:none}
+    .arPrompt .step.on{display:block}
+    #sheet .sizeChips{display:none;flex-wrap:wrap;gap:8px;justify-content:center;margin:0 0 14px}
+    #sheet .sizeChips.show{display:flex}
+    #sheet .sizeChips button{padding:8px 12px;border:0;border-radius:999px;background:rgba(255,255,255,.14);color:#fff;font-size:12px;font-weight:700}
+    #sheet .sizeChips button.active{background:#1976d2}
+    #modeSwitch{display:none;margin:0 0 14px}
+    #modeSwitch.show{display:block}
+    #modeSwitch .modeHint{display:block;margin:0 0 8px;font-size:12px;opacity:.75;text-align:center}
+    #modeSwitch .row{display:flex;gap:8px}
+    #modeSwitch button{flex:1;padding:10px 8px;border:0;border-radius:10px;background:rgba(255,255,255,.14);color:#fff;font-size:13px;font-weight:700}
+    #modeSwitch button.active{background:#1976d2}
+    #sheet{position:fixed;left:0;right:0;bottom:0;z-index:14;padding:16px 16px max(18px,env(safe-area-inset-bottom));background:rgba(40,40,40,.9);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);transform:translateY(110%);transition:transform .28s ease;border-radius:18px 18px 0 0}
     #sheet.open{transform:translateY(0)}
+    #sheet.noAnim{transition:none}
     #sheet h2{margin:0 0 14px;text-align:center;font-size:16px;font-weight:600}
     .tiles{display:flex;justify-content:center;gap:22px;margin-bottom:16px}
     .tileOpt{display:flex;flex-direction:column;align-items:center;gap:8px;background:none;border:0;color:#fff;padding:0}
@@ -26,11 +66,17 @@
     .row{display:flex;justify-content:center;gap:10px}
     .row button{padding:12px 18px;border:0;border-radius:10px;background:#1976d2;color:#fff;font-size:15px;font-weight:700}
     .row button.ghost{background:rgba(255,255,255,.14)}
-    #aimHint{position:fixed;left:50%;top:42%;transform:translate(-50%,-50%);z-index:5;width:54px;height:54px;border:2px solid rgba(255,255,255,.85);border-radius:50%;pointer-events:none;opacity:0;transition:opacity .2s}
+    #sheet .row button{flex:1;padding:12px 10px;font-size:14px}
+    #sheet .row button:disabled{opacity:.4}
+    #aimHint{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:5;width:48px;height:48px;border:2px solid rgba(255,255,255,.9);border-radius:50%;pointer-events:none;opacity:0;transition:opacity .2s}
     #aimHint.on{opacity:1}
-    #aimHint::before,#aimHint::after{content:"";position:absolute;background:rgba(255,255,255,.85)}
-    #aimHint::before{left:50%;top:8px;bottom:8px;width:2px;transform:translateX(-50%)}
-    #aimHint::after{top:50%;left:8px;right:8px;height:2px;transform:translateY(-50%)}
+    #aimHint::before,#aimHint::after{content:"";position:absolute;background:rgba(255,255,255,.9)}
+    #aimHint::before{left:50%;top:5px;bottom:5px;width:2px;transform:translateX(-50%)}
+    #aimHint::after{top:50%;left:5px;right:5px;height:2px;transform:translateY(-50%)}
+    #aimDot{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:6;width:5px;height:5px;border-radius:50%;background:#fff;pointer-events:none;opacity:0;transition:opacity .2s}
+    #aimDot.on{opacity:1}
+    #measure{position:fixed;left:50%;top:calc(50% + 40px);transform:translateX(-50%);z-index:6;padding:6px 12px;border-radius:999px;background:rgba(0,0,0,.72);font-size:13px;font-weight:700;white-space:nowrap;pointer-events:none;display:none}
+    #measure.on{display:block}
   </style>
   <script src="https://cdn.jsdelivr.net/npm/@8thwall/xrextras@1/dist/xrextras.js" crossorigin="anonymous"></script>
   <script src="https://cdn.jsdelivr.net/npm/@8thwall/coaching-overlay@1/dist/coaching-overlay.js" crossorigin="anonymous"></script>
@@ -39,12 +85,53 @@
 <body>
   <canvas id="camerafeed"></canvas>
   <div id="aimHint"></div>
+  <div id="aimDot"></div>
+  <div id="measure"></div>
+  <button id="btnBack" type="button" title="Back to home" aria-label="Back to home">←</button>
   <div id="hud">Loading AR engine…</div>
-  <div id="topActions"><button id="btnClose" type="button" title="Reset">×</button></div>
+  <div id="topActions">
+    <button id="btnToggleCm" type="button" title="Show or hide measurements" aria-pressed="true">cm</button>
+    <button id="btnClose" type="button" title="Reset">×</button>
+  </div>
 
+  <button id="btnModeQuick" type="button" aria-label="Switch layout mode">Free draw</button>
   <div id="drawBar">
-    <button id="btnUndo" type="button">Undo Point</button>
-    <button id="btnClosePoly" class="primary" type="button" disabled>Close Area</button>
+    <button id="btnUndo" class="sideBtn" type="button">Undo</button>
+    <button id="btnSnap" type="button" title="Capture point at crosshair" aria-label="Capture point"></button>
+    <button id="btnClosePoly" class="sideBtn primary" type="button" disabled>Close</button>
+  </div>
+
+  <div id="rectPrompt" class="arPrompt" role="dialog" aria-modal="true" aria-labelledby="rectTitle">
+    <div class="card">
+      <h3 id="rectTitle">Looks like a rectangle</h3>
+      <p id="rectText">Your outline is close to a box. Straighten it to a perfect rectangle on the floor?</p>
+      <div class="row">
+        <button type="button" class="no" id="rectNo">Keep as drawn</button>
+        <button type="button" class="yes" id="rectYes">Yes, straighten</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="layoutPrompt" class="arPrompt" role="dialog" aria-modal="true" aria-labelledby="layoutTitle">
+    <div class="card">
+      <div id="layoutStepMode" class="step on">
+        <h3 id="layoutTitle">Shape ready</h3>
+        <p id="layoutText">Keep this shape, or Snap more tiles beside it.</p>
+        <div class="row">
+          <button type="button" class="no" id="layoutPoint">Keep shape</button>
+          <button type="button" class="yes" id="layoutSnap">Snap more</button>
+        </div>
+      </div>
+      <div id="layoutStepSize" class="step">
+        <h3>Choose tile size</h3>
+        <p>Match the real material size (ceramic, wood plank, etc.). Then Snap places that size beside the first tile.</p>
+        <div class="sizeChips" id="layoutSizeChips"></div>
+        <div class="row">
+          <button type="button" class="no" id="layoutSnapBack">Back</button>
+          <button type="button" class="yes" id="layoutSnapGo">Start snapping</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div id="sheet">
@@ -54,7 +141,16 @@
       <button class="tileOpt active" data-tile="ceramic" type="button"><div class="ball" id="prevCeramic"></div><span>Ceramic</span></button>
       <button class="tileOpt" data-tile="wood" type="button"><div class="ball" id="prevWood"></div><span>Wood</span></button>
     </div>
+    <div class="sizeChips" id="sheetSizeChips" aria-label="Tile size"></div>
+    <div id="modeSwitch">
+      <span class="modeHint">Wall or odd edge? Your tiles stay either way</span>
+      <div class="row">
+        <button type="button" id="btnSwitchPoint">Free draw</button>
+        <button type="button" id="btnSwitchSnap">Snap</button>
+      </div>
+    </div>
     <div class="row">
+      <button class="ghost" id="btnSheetUndo" type="button">Undo</button>
       <button class="ghost" id="btnEditPoints" type="button">Edit Points</button>
       <button id="btnApply" type="button">Apply Tiles</button>
     </div>
@@ -69,26 +165,96 @@
     const MAX_FLOOR_HIT_Y = 0.12;
     const MIN_HIT_DISTANCE = 0.45;
     const POINT_R = 0.04;
-    const CLOSE_FIRST_PX = 44;   // tap near first point to close polygon
     const MIN_POINT_DIST = 0.08; // meters — ignore accidental double taps
+    const SNAP_CLOSE_DIST = 0.16; // crosshair this close to point 1 closes the area
+    const RETICLE_LERP = 0.25;    // smooths SLAM jitter on the aim position
+    const TRIGGER_DEBOUNCE_MS = 250;
+    const GROUT_GAP = 0.012; // visual gap between adjacent tiles (metres)
+    const RECT_ANGLE_COS_MAX = 0.42;
+    const RECT_SIDE_RATIO_MIN = 0.55;
+    const RECT_CORNER_ERR_MAX = 0.22;
     const HIT_TYPES = ['FEATURE_POINT', 'ESTIMATED_SURFACE', 'DETECTED_SURFACE'];
 
     const hud = document.getElementById('hud');
     const sheet = document.getElementById('sheet');
     const drawBar = document.getElementById('drawBar');
+    const topActions = document.getElementById('topActions');
     const aimHint = document.getElementById('aimHint');
+    const aimDot = document.getElementById('aimDot');
+    const measureEl = document.getElementById('measure');
+    const btnBack = document.getElementById('btnBack');
     const btnClose = document.getElementById('btnClose');
+    const btnToggleCm = document.getElementById('btnToggleCm');
     const btnApply = document.getElementById('btnApply');
     const btnEditPoints = document.getElementById('btnEditPoints');
+    const btnSheetUndo = document.getElementById('btnSheetUndo');
     const btnUndo = document.getElementById('btnUndo');
+    const btnSnap = document.getElementById('btnSnap');
     const btnClosePoly = document.getElementById('btnClosePoly');
+    const btnModeQuick = document.getElementById('btnModeQuick');
+    const rectPrompt = document.getElementById('rectPrompt');
+    const rectText = document.getElementById('rectText');
+    const rectYes = document.getElementById('rectYes');
+    const rectNo = document.getElementById('rectNo');
+    const layoutPrompt = document.getElementById('layoutPrompt');
+    const layoutText = document.getElementById('layoutText');
+    const layoutPoint = document.getElementById('layoutPoint');
+    const layoutSnap = document.getElementById('layoutSnap');
+    const layoutStepMode = document.getElementById('layoutStepMode');
+    const layoutStepSize = document.getElementById('layoutStepSize');
+    const layoutSizeChips = document.getElementById('layoutSizeChips');
+    const layoutSnapBack = document.getElementById('layoutSnapBack');
+    const layoutSnapGo = document.getElementById('layoutSnapGo');
+    const sheetSizeChips = document.getElementById('sheetSizeChips');
+    const modeSwitch = document.getElementById('modeSwitch');
+    const btnSwitchPoint = document.getElementById('btnSwitchPoint');
+    const btnSwitchSnap = document.getElementById('btnSwitchSnap');
+
+    const SNAP_SIZE_PRESETS = [
+      { id: 'drawn', label: 'As drawn', w: null, d: null },
+      { id: '20', label: '20×20 cm', w: 0.20, d: 0.20 },
+      { id: '30', label: '30×30 cm', w: 0.30, d: 0.30 },
+      { id: '40', label: '40×40 cm', w: 0.40, d: 0.40 },
+      { id: '3060', label: '30×60 cm', w: 0.30, d: 0.60 },
+      { id: '60', label: '60×60 cm', w: 0.60, d: 0.60 },
+    ];
+    let selectedSnapSizeId = 'drawn';
 
     let engineStarted = false;
     let scaleReady = false;
     let selectedTile = 'ceramic';
+    let showMeasurements = true;
     let api = null;
 
+    btnBack.addEventListener('click', () => { window.location.href = '/'; });
+
     function status(msg){ console.log('[AR]', msg); hud.textContent = msg; }
+
+    function formatLen(m){
+      return m < 1 ? `${Math.round(m * 100)} cm` : `${m.toFixed(2)} m`;
+    }
+
+    function segmentLength(a, b){
+      return Math.hypot(b.x - a.x, b.z - a.z);
+    }
+
+    function polygonPerimeter(pts, includeClosing){
+      let total = 0;
+      for (let i = 1; i < pts.length; i++) total += segmentLength(pts[i - 1], pts[i]);
+      if (includeClosing && pts.length >= 3) total += segmentLength(pts[pts.length - 1], pts[0]);
+      return total;
+    }
+
+    function polygonArea(pts){
+      if (pts.length < 3) return 0;
+      let sum = 0;
+      for (let i = 0, n = pts.length; i < n; i++) {
+        const a = pts[i];
+        const b = pts[(i + 1) % n];
+        sum += a.x * b.z - b.x * a.z;
+      }
+      return Math.abs(sum) / 2;
+    }
 
     function prepTex(t){
       t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -168,18 +334,25 @@
 
     // Keep a fixed world origin. Re-binding to the live camera pose makes
     // already-drawn areas slide when the user looks around.
+    let xrOriginSet = false;
     function syncXrCamera(){
       if (!window.XR8) return;
+      // Only once per session: re-setting the origin mid-session teleports the world,
+      // which makes an already-drawn area jump and wobble.
+      if (xrOriginSet) return;
+      xrOriginSet = true;
       XR8.XrController.updateCameraProjectionMatrix({
         origin: { x: 0, y: 0, z: 0 },
         facing: { x: 0, y: 0, z: 0, w: 1 },
       });
     }
 
-    function resolveFloorPoint(cam, clientX, clientY, groundPlane){
-      const ndcX = (clientX / window.innerWidth) * 2 - 1;
-      const ndcY = -(clientY / window.innerHeight) * 2 + 1;
-      _raycaster.setFromCamera({ x: ndcX, y: ndcY }, cam);
+    /**
+     * Resolves the floor point under the centre crosshair. Touch coordinates are never
+     * used: the ray always leaves the camera dead-centre, where the reticle is drawn.
+     */
+    function resolveCenterFloorPoint(cam, groundPlane){
+      _raycaster.setFromCamera({ x: 0, y: 0 }, cam);
       const hits = _raycaster.intersectObject(groundPlane, false);
       if (hits.length) {
         return { x: hits[0].point.x, y: FLOOR_Y, z: hits[0].point.z };
@@ -191,22 +364,57 @@
       return null;
     }
 
+    function insetPolygon(pts, gap){
+      if (pts.length < 3 || gap <= 0) return pts.map((p) => ({ x: p.x, y: p.y, z: p.z }));
+      let cx = 0, cz = 0;
+      for (const p of pts) { cx += p.x; cz += p.z; }
+      cx /= pts.length; cz /= pts.length;
+      return pts.map((p) => {
+        const dx = p.x - cx, dz = p.z - cz;
+        const len = Math.hypot(dx, dz) || 1;
+        const t = Math.max(0, (len - gap) / len);
+        return { x: cx + dx * t, y: p.y, z: cz + dz * t };
+      });
+    }
+
+    function buildTileBorder(pts){
+      const fy = FLOOR_Y + 0.011;
+      const arr = new Float32Array((pts.length + 1) * 3);
+      for (let i = 0; i < pts.length; i++) {
+        arr[i * 3] = pts[i].x;
+        arr[i * 3 + 1] = fy;
+        arr[i * 3 + 2] = pts[i].z;
+      }
+      arr[pts.length * 3] = pts[0].x;
+      arr[pts.length * 3 + 1] = fy;
+      arr[pts.length * 3 + 2] = pts[0].z;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(arr, 3));
+      return new THREE.Line(geo, new THREE.LineBasicMaterial({
+        color: 0x1a1a1a,
+        transparent: true,
+        opacity: 0.85,
+      }));
+    }
+
     /** Build a floor mesh from polygon points with world-meter UV tiling. */
-    function buildPolygonFill(points, texture){
+    function buildPolygonFill(points, texture, { inset = false, raised = false } = {}){
       if (points.length < 3) return null;
+      const drawPts = inset ? insetPolygon(points, GROUT_GAP) : points;
       const shape = new THREE.Shape();
-      shape.moveTo(points[0].x, points[0].z);
-      for (let i = 1; i < points.length; i++) shape.lineTo(points[i].x, points[i].z);
+      shape.moveTo(drawPts[0].x, drawPts[0].z);
+      for (let i = 1; i < drawPts.length; i++) shape.lineTo(drawPts[i].x, drawPts[i].z);
       shape.closePath();
 
       const geo = new THREE.ShapeGeometry(shape);
       // ShapeGeometry is in XY; remap to XZ floor and set UVs from world meters.
       const pos = geo.attributes.position;
       const uv = geo.attributes.uv;
+      const fy = FLOOR_Y + (raised ? 0.003 : 0);
       for (let i = 0; i < pos.count; i++) {
         const x = pos.getX(i);
         const y = pos.getY(i); // this is world Z from shape
-        pos.setXYZ(i, x, FLOOR_Y, y);
+        pos.setXYZ(i, x, fy, y);
         uv.setXY(i, x / TILE_SIZE, y / TILE_SIZE);
       }
       pos.needsUpdate = true;
@@ -224,37 +432,388 @@
         polygonOffset: true,
         polygonOffsetFactor: -1,
       });
-      return new THREE.Mesh(geo, mat);
+      const mesh = new THREE.Mesh(geo, mat);
+      const border = buildTileBorder(points);
+      mesh.add(border);
+      mesh.userData.tileBorder = border;
+      return mesh;
     }
 
     const tilePipelineModule = () => {
-      let camera, scene, groundPlane;
+      let camera, scene, groundPlane, extendPreview;
       let selectionGroup, borderLine, previewLine, fillMesh;
+      const fillMeshes = [];
+      const extraFillMeshes = [];
       const vertexMeshes = [];
       /** @type {{x:number,y:number,z:number}[]} */
       let points = [];
       let closed = false;
       let mode = 'draw'; // draw | closed | filled
-      let dragIndex = -1;
-      let previewAim = null;
+      // Crosshair aim state — the only place a point can be spawned.
+      let aim = null;
+      let aimSnapsToFirst = false;
+      let pendingTrigger = false;
+      let pendingExtend = false;
+      let lastTriggerAt = 0;
+      let tileBasis = null;
+      let occupiedCells = new Set();
+      let cellOrder = [];
+      let nextCell = null;
+      let layoutMode = null; // null | 'point' | 'snap'
+      let drawingExtra = false;
+      let sheetPinned = false; // tile sheet open while snap tiles stay
+      let firstBoxPoints = null;
 
-      function syncDrawUi(){
-        const drawing = mode === 'draw';
-        drawBar.classList.toggle('show', drawing && scaleReady);
-        btnClosePoly.disabled = points.length < 3;
-        btnUndo.disabled = points.length === 0;
-        sheet.classList.toggle('open', mode === 'closed' || mode === 'filled');
-        aimHint.classList.toggle('on', scaleReady && mode === 'draw');
+      let pendingRectFit = null;
+
+      function canExtendTiles(){
+        return mode === 'filled' && layoutMode === 'snap' && !!tileBasis && occupiedCells.size > 0 && !drawingExtra;
       }
 
-      function clearFill(){
-        if (fillMesh) {
-          selectionGroup.remove(fillMesh);
-          fillMesh.geometry.dispose();
-          fillMesh.material.map?.dispose?.();
-          fillMesh.material.dispose();
+      function hasSnapTiles(){
+        return !!tileBasis && occupiedCells.size > 0;
+      }
+
+      function syncModeSwitchUi(){
+        const show = layoutMode === 'snap' || layoutMode === 'point' || hasSnapTiles();
+        modeSwitch.classList.toggle('show', show);
+        btnSwitchPoint.classList.toggle('active', layoutMode === 'point' || drawingExtra);
+        btnSwitchSnap.classList.toggle('active', layoutMode === 'snap' && !drawingExtra);
+      }
+
+      function canUndo(){
+        if ((mode === 'draw' || mode === 'closed' || drawingExtra) && points.length > 0) return true;
+        if (extraFillMeshes.length > 0) return true;
+        if (cellOrder.length > 1) return true;
+        if (mode === 'filled' && !hasSnapTiles() && points.length > 0) return true;
+        if (mode === 'filled' && cellOrder.length === 1 && !!tileBasis) return true;
+        return false;
+      }
+
+      /** Close tile sheet without the slide animation (avoids stacking with Undo/Snap). */
+      function closeSheetImmediate(){
+        sheetPinned = false;
+        sheet.classList.add('noAnim');
+        sheet.classList.remove('open');
+        void sheet.offsetHeight;
+        sheet.classList.remove('noAnim');
+      }
+
+      function hideDrawChrome(){
+        drawBar.classList.remove('show');
+        btnModeQuick.classList.remove('show');
+        aimHint.classList.remove('on');
+        aimDot.classList.remove('on');
+        measureEl.classList.remove('on');
+      }
+
+      function setSheetChrome(sheetOpen){
+        document.body.classList.toggle('arSheetOpen', !!sheetOpen);
+        if (sheetOpen) hideDrawChrome();
+      }
+
+      function syncModeQuickUi(sheetOpen){
+        if (sheetOpen) {
+          btnModeQuick.classList.remove('show');
+          return;
+        }
+        const extending = canExtendTiles();
+        if (extending) {
+          btnModeQuick.textContent = 'Free draw';
+          btnModeQuick.classList.add('show');
+          return;
+        }
+        if (drawingExtra || (layoutMode === 'point' && hasSnapTiles())) {
+          btnModeQuick.textContent = 'Use Snap';
+          btnModeQuick.classList.add('show');
+          return;
+        }
+        btnModeQuick.classList.remove('show');
+      }
+
+      function syncDrawUi(){
+        const drawing = mode === 'draw' || drawingExtra;
+        const extending = canExtendTiles();
+        const undoable = canUndo();
+        const promptOpen = rectPrompt.classList.contains('open') || layoutPrompt.classList.contains('open');
+
+        if (drawing) sheetPinned = false;
+
+        let wantSheet = false;
+        if (!promptOpen) {
+          if (mode === 'closed') wantSheet = true;
+          else if (mode === 'filled' && !tileBasis) wantSheet = true;
+          else if (mode === 'filled' && tileBasis) {
+            // Snap-extend: bar only (unless user pinned the sheet).
+            // Point-to-point / after undo: sheet only — never both.
+            wantSheet = extending ? sheetPinned : true;
+          }
+        }
+        if (wantSheet) sheet.classList.add('open');
+        else sheet.classList.remove('open');
+
+        const sheetOpen = sheet.classList.contains('open') || promptOpen;
+        setSheetChrome(sheetOpen);
+        // While the tile sheet is up, drop the floating Undo/Tiles bar entirely
+        // (sheet already has Undo). Only show the bar for live drawing / snap-extend.
+        const wantBar = !sheetOpen && ((drawing && scaleReady) || extending);
+        drawBar.classList.toggle('show', wantBar);
+        sheetSizeChips.classList.toggle('show', extending && !sheetOpen);
+        btnClosePoly.disabled = extending ? false : points.length < 3;
+        btnClosePoly.textContent = extending ? 'Tiles' : 'Close';
+        btnClosePoly.classList.toggle('primary', !extending);
+        btnUndo.disabled = !undoable;
+        if (btnSheetUndo) btnSheetUndo.disabled = !undoable;
+        btnSnap.disabled = !scaleReady || !(drawing || extending);
+        const aiming = !sheetOpen && scaleReady && (drawing || extending);
+        aimHint.classList.toggle('on', aiming);
+        aimDot.classList.toggle('on', aiming);
+        syncModeQuickUi(sheetOpen);
+        syncModeSwitchUi();
+        syncAimUi();
+      }
+
+      function syncAimUi(){
+        if (!showMeasurements || !scaleReady
+          || sheet.classList.contains('open')
+          || rectPrompt.classList.contains('open')
+          || layoutPrompt.classList.contains('open')) {
+          measureEl.classList.remove('on');
+          return;
+        }
+        measureEl.classList.add('on');
+        if (mode === 'draw') {
+          if (!points.length) {
+            measureEl.textContent = aim ? 'Aim · press Snap to place point 1' : 'Looking for the floor…';
+            return;
+          }
+          const last = points[points.length - 1];
+          const live = aim ? segmentLength(last, aim) : null;
+          const perim = polygonPerimeter(points, false);
+          measureEl.textContent = live !== null
+            ? `${formatLen(live)} · path ${formatLen(perim)}`
+            : `path ${formatLen(perim)}`;
+          return;
+        }
+        if (canExtendTiles()) {
+          measureEl.textContent = nextCell
+            ? `Next tile ready · Snap to place (${occupiedCells.size} tiles)`
+            : `Aim beside a tile edge · Snap adds the next one (${occupiedCells.size})`;
+          return;
+        }
+        measureEl.textContent = `perimeter ${formatLen(polygonPerimeter(points, true))} · area ${polygonArea(points).toFixed(2)} m²`;
+      }
+
+      function setMeasurementsVisible(on){
+        showMeasurements = on;
+        btnToggleCm.setAttribute('aria-pressed', on ? 'true' : 'false');
+        btnToggleCm.classList.toggle('off', !on);
+        btnToggleCm.textContent = on ? 'cm' : 'cm✕';
+        syncSegmentLabels();
+        if (liveLabel && !on) liveLabel.sprite.visible = false;
+        syncAimUi();
+      }
+
+      function disposeTileMesh(mesh){
+        if (!mesh) return;
+        if (mesh.userData.tileBorder) {
+          mesh.remove(mesh.userData.tileBorder);
+          mesh.userData.tileBorder.geometry.dispose();
+          mesh.userData.tileBorder.material.dispose();
+          mesh.userData.tileBorder = null;
+        }
+        selectionGroup.remove(mesh);
+        mesh.geometry.dispose();
+        mesh.material.map?.dispose?.();
+        mesh.material.dispose();
+      }
+
+      function clearExtraFills(){
+        while (extraFillMeshes.length) disposeTileMesh(extraFillMeshes.pop());
+      }
+
+      function clearFill({ keepExtras = false } = {}){
+        if (fillMesh && !fillMeshes.includes(fillMesh)) {
+          disposeTileMesh(fillMesh);
+          fillMesh = null;
+        } else {
           fillMesh = null;
         }
+        while (fillMeshes.length) disposeTileMesh(fillMeshes.pop());
+        if (!keepExtras) clearExtraFills();
+      }
+
+      function resetTileExtend(){
+        tileBasis = null;
+        occupiedCells = new Set();
+        cellOrder = [];
+        nextCell = null;
+        pendingExtend = false;
+        layoutMode = null;
+        drawingExtra = false;
+        sheetPinned = false;
+        firstBoxPoints = null;
+        clearExtraFills();
+        if (extendPreview) extendPreview.visible = false;
+      }
+
+      function cellKey(i, j){ return `${i},${j}`; }
+
+      function setupTileBasisFromPoints(pts){
+        if (!pts || pts.length !== 4) return false;
+        const p0 = pts[0], p1 = pts[1], p3 = pts[3];
+        let ux = p1.x - p0.x, uz = p1.z - p0.z;
+        const w = Math.hypot(ux, uz);
+        if (w < MIN_POINT_DIST) return false;
+        ux /= w; uz /= w;
+        let vx = -uz, vz = ux;
+        let d = (p3.x - p0.x) * vx + (p3.z - p0.z) * vz;
+        if (Math.abs(d) < MIN_POINT_DIST) {
+          const p2 = pts[2];
+          d = (p2.x - p1.x) * vx + (p2.z - p1.z) * vz;
+        }
+        if (Math.abs(d) < MIN_POINT_DIST) return false;
+        if (d < 0) { vx = -vx; vz = -vz; d = -d; }
+        tileBasis = { ox: p0.x, oz: p0.z, ux, uz, vx, vz, w, d };
+        occupiedCells = new Set([cellKey(0, 0)]);
+        cellOrder = [{ i: 0, j: 0 }];
+        nextCell = null;
+        return true;
+      }
+
+      function cellCornersLocal(i, j){
+        const b = tileBasis;
+        const x0 = b.ox + b.ux * b.w * i + b.vx * b.d * j;
+        const z0 = b.oz + b.uz * b.w * i + b.vz * b.d * j;
+        return [
+          { x: x0, y: FLOOR_Y, z: z0 },
+          { x: x0 + b.ux * b.w, y: FLOOR_Y, z: z0 + b.uz * b.w },
+          { x: x0 + b.ux * b.w + b.vx * b.d, y: FLOOR_Y, z: z0 + b.uz * b.w + b.vz * b.d },
+          { x: x0 + b.vx * b.d, y: FLOOR_Y, z: z0 + b.vz * b.d },
+        ];
+      }
+
+      function pickNextCellFromAim(){
+        if (!tileBasis || !aim) return null;
+        const b = tileBasis;
+        const fu = ((aim.x - b.ox) * b.ux + (aim.z - b.oz) * b.uz) / b.w;
+        const fv = ((aim.x - b.ox) * b.vx + (aim.z - b.oz) * b.vz) / b.d;
+        let best = null, bestDist = Infinity;
+        for (const key of occupiedCells) {
+          const [ci, cj] = key.split(',').map(Number);
+          const neighbors = [
+            { i: ci + 1, j: cj },
+            { i: ci - 1, j: cj },
+            { i: ci, j: cj + 1 },
+            { i: ci, j: cj - 1 },
+          ];
+          for (const c of neighbors) {
+            if (occupiedCells.has(cellKey(c.i, c.j))) continue;
+            const du = (c.i + 0.5) - fu;
+            const dv = (c.j + 0.5) - fv;
+            const dist = du * du + dv * dv;
+            if (dist < bestDist) { bestDist = dist; best = c; }
+          }
+        }
+        return best;
+      }
+
+      function updateExtendPreview(){
+        if (!extendPreview) return;
+        if (!canExtendTiles()) {
+          extendPreview.visible = false;
+          nextCell = null;
+          return;
+        }
+        nextCell = pickNextCellFromAim();
+        if (!nextCell) {
+          extendPreview.visible = false;
+          return;
+        }
+        const corners = cellCornersLocal(nextCell.i, nextCell.j);
+        const pos = extendPreview.geometry.attributes.position;
+        for (let i = 0; i < 4; i++) pos.setXYZ(i, corners[i].x, FLOOR_Y + 0.008, corners[i].z);
+        pos.setXYZ(4, corners[0].x, FLOOR_Y + 0.008, corners[0].z);
+        pos.needsUpdate = true;
+        extendPreview.geometry.computeBoundingSphere();
+        extendPreview.visible = true;
+      }
+
+      function rebuildCellFills(){
+        clearFill({ keepExtras: true });
+        if (!tileBasis || !cellOrder.length) return;
+        const tex = textures[selectedTile] || textures.ceramic;
+        for (const cell of cellOrder) {
+          const mesh = buildPolygonFill(cellCornersLocal(cell.i, cell.j), tex, {
+            inset: true,
+            raised: true,
+          });
+          if (!mesh) continue;
+          selectionGroup.add(mesh);
+          fillMeshes.push(mesh);
+        }
+        fillMesh = fillMeshes[0] || null;
+      }
+
+      function toggleTileSheet(){
+        sheetPinned = !sheet.classList.contains('open');
+        if (sheetPinned) {
+          sheet.classList.add('open');
+          hideDrawChrome();
+        } else {
+          closeSheetImmediate();
+        }
+        syncDrawUi();
+      }
+
+      function placeNextTile(){
+        if (!canExtendTiles() || !nextCell) {
+          status('Aim beside an existing tile edge, then press Snap.');
+          return;
+        }
+        const key = cellKey(nextCell.i, nextCell.j);
+        if (occupiedCells.has(key)) return;
+        occupiedCells.add(key);
+        cellOrder.push({ i: nextCell.i, j: nextCell.j });
+        rebuildCellFills();
+        refresh();
+        status(`Tile ${cellOrder.length} placed. Aim at the next edge and Snap again.`);
+      }
+
+      function undoLastTile(){
+        if (cellOrder.length <= 1) return false;
+        const last = cellOrder.pop();
+        occupiedCells.delete(cellKey(last.i, last.j));
+        rebuildCellFills();
+        refresh();
+        status(`Removed last tile (${cellOrder.length} left). Aim and Snap to add more.`);
+        return true;
+      }
+
+      function undoFirstSnapToPlain(){
+        if (cellOrder.length !== 1 || !tileBasis) return false;
+        const box = (firstBoxPoints && firstBoxPoints.length)
+          ? firstBoxPoints.map((p) => ({ ...p }))
+          : points.map((p) => ({ ...p }));
+        clearExtraFills();
+        resetTileExtend();
+        points = box;
+        firstBoxPoints = box.map((p) => ({ ...p }));
+        closed = true;
+        mode = 'filled';
+        layoutMode = 'point';
+        clearFill();
+        const tex = textures[selectedTile] || textures.ceramic;
+        fillMesh = buildPolygonFill(points, tex, { inset: true, raised: true });
+        if (fillMesh) selectionGroup.add(fillMesh);
+        sheetSizeChips.classList.remove('show');
+        // Point-to-point after undoing snap: sheet only — kill floating Undo/Tiles.
+        hideDrawChrome();
+        sheet.classList.add('open');
+        setSheetChrome(true);
+        refresh();
+        status('Removed snap grid. Use Undo in the panel to edit corners, or Snap to place more tiles.');
+        return true;
       }
 
       function rebuildPolyline(includeClose){
@@ -305,49 +864,472 @@
         }
       }
 
-      function updatePreviewTo(aim){
-        if (mode !== 'draw' || points.length === 0 || !aim) {
+      function updatePreviewTo(target){
+        if (mode !== 'draw' || points.length === 0 || !target) {
           previewLine.visible = false;
+          if (liveLabel) liveLabel.sprite.visible = false;
           return;
         }
         const last = points[points.length - 1];
-        const arr = new Float32Array([
-          last.x, FLOOR_Y + 0.005, last.z,
-          aim.x, FLOOR_Y + 0.005, aim.z,
-        ]);
-        previewLine.geometry.setAttribute('position', new THREE.BufferAttribute(arr, 3));
-        previewLine.geometry.attributes.position.needsUpdate = true;
+        // Write in place — reallocating the buffer every frame caused visible stutter.
+        const pos = previewLine.geometry.attributes.position;
+        pos.setXYZ(0, last.x, FLOOR_Y + 0.005, last.z);
+        pos.setXYZ(1, target.x, FLOOR_Y + 0.005, target.z);
+        pos.needsUpdate = true;
+        previewLine.geometry.computeBoundingSphere();
         previewLine.visible = true;
+        if (showMeasurements) showLabelAt(liveLabel, last, target);
+        else if (liveLabel) liveLabel.sprite.visible = false;
+      }
+
+      // ---- segment distance labels ------------------------------------------
+      const segmentLabels = [];
+      let liveLabel = null;
+
+      function makeLabel(){
+        const canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 72;
+        const tex = new THREE.CanvasTexture(canvas);
+        if ('colorSpace' in tex) tex.colorSpace = THREE.SRGBColorSpace;
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: tex,
+          transparent: true,
+          depthTest: false,
+        }));
+        sprite.scale.set(0.26, 0.073, 1);
+        sprite.renderOrder = 20;
+        sprite.visible = false;
+        const label = { canvas, tex, sprite, text: '' };
+        selectionGroup.add(sprite);
+        return label;
+      }
+
+      function drawLabel(label, text){
+        if (label.text === text) return;
+        label.text = text;
+        const g = label.canvas.getContext('2d');
+        g.clearRect(0, 0, 256, 72);
+        g.fillStyle = 'rgba(0,0,0,.72)';
+        g.beginPath();
+        g.roundRect ? g.roundRect(8, 10, 240, 52, 26) : g.rect(8, 10, 240, 52);
+        g.fill();
+        g.fillStyle = '#fff';
+        g.font = 'bold 34px system-ui, sans-serif';
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        g.fillText(text, 128, 37);
+        label.tex.needsUpdate = true;
+      }
+
+      function showLabelAt(label, a, b){
+        if (!label) return;
+        if (!showMeasurements) { label.sprite.visible = false; return; }
+        const len = segmentLength(a, b);
+        if (len < 0.02) { label.sprite.visible = false; return; }
+        drawLabel(label, formatLen(len));
+        label.sprite.position.set((a.x + b.x) / 2, FLOOR_Y + 0.06, (a.z + b.z) / 2);
+        label.sprite.visible = true;
+      }
+
+      function syncSegmentLabels(){
+        const includeClosing = closed || mode === 'closed' || mode === 'filled';
+        const segs = [];
+        for (let i = 1; i < points.length; i++) segs.push([points[i - 1], points[i]]);
+        if (includeClosing && points.length >= 3) segs.push([points[points.length - 1], points[0]]);
+
+        while (segmentLabels.length < segs.length) segmentLabels.push(makeLabel());
+        for (let i = 0; i < segmentLabels.length; i++) {
+          if (showMeasurements && i < segs.length) showLabelAt(segmentLabels[i], segs[i][0], segs[i][1]);
+          else segmentLabels[i].sprite.visible = false;
+        }
       }
 
       function refresh(){
         rebuildPolyline(closed || mode !== 'draw');
         syncVertices();
+        syncSegmentLabels();
         syncDrawUi();
       }
 
       function addPoint(p){
         if (points.length) {
           const last = points[points.length - 1];
-          if (Math.hypot(p.x - last.x, p.z - last.z) < MIN_POINT_DIST) return;
+          if (segmentLength(p, last) < MIN_POINT_DIST) {
+            status('Too close to the previous point — move the crosshair further away.');
+            return;
+          }
         }
         points.push({ x: p.x, y: FLOOR_Y, z: p.z });
+        const lastSeg = points.length > 1 ? segmentLength(points[points.length - 2], points[points.length - 1]) : 0;
         refresh();
         status(points.length < 3
-          ? `Point ${points.length} set — keep tapping corners of the floor area.`
-          : `Point ${points.length} set — tap the green first point (or Close Area) to finish.`);
+          ? `Point ${points.length} set (${formatLen(lastSeg)}) — aim next corner, press Snap.`
+          : `Point ${points.length} set (${formatLen(lastSeg)}) — aim at first point + Snap, or press Close.`);
       }
 
       function undoPoint(){
-        if (!points.length || mode === 'filled') return;
-        points.pop();
+        // 1) While placing / after closing corners (first shape or free-draw leftover).
+        if ((mode === 'draw' || mode === 'closed' || drawingExtra) && points.length) {
+          hideRectPrompt();
+          hideLayoutPrompt();
+          closeSheetImmediate();
+          hideDrawChrome();
+          points.pop();
+          closed = false;
+          mode = 'draw';
+          if (drawingExtra) {
+            refresh();
+            status(points.length
+              ? `Removed corner (${points.length} left). Aim and Snap.`
+              : 'Aim and Snap corners for the leftover edge.');
+            return;
+          }
+          resetTileExtend();
+          clearFill();
+          refresh();
+          status(points.length
+            ? `Removed last point (${points.length} left). Aim and press Snap.`
+            : 'All points cleared. Aim the crosshair and press Snap.');
+          return;
+        }
+
+        // 2) Free-draw pieces (always before snap cells).
+        if (extraFillMeshes.length) {
+          closeSheetImmediate();
+          disposeTileMesh(extraFillMeshes.pop());
+          refresh();
+          status(extraFillMeshes.length
+            ? 'Removed last free shape. Undo again for more.'
+            : 'Removed free shape. Undo again to remove snap tiles, or Free draw to add another.');
+          return;
+        }
+
+        // 3) Extra snap tiles (Snap or after Free draw).
+        if (cellOrder.length > 1) {
+          closeSheetImmediate();
+          undoLastTile();
+          return;
+        }
+
+        // 4) First snap tile → plain Keep-shape fill.
+        if (cellOrder.length === 1 && tileBasis) {
+          closeSheetImmediate();
+          undoFirstSnapToPlain();
+          return;
+        }
+
+        // 5) Plain Keep-shape / point-to-point fill → back to editing corners.
+        if (mode === 'filled' && !hasSnapTiles() && points.length) {
+          hideRectPrompt();
+          hideLayoutPrompt();
+          closeSheetImmediate();
+          hideDrawChrome();
+          layoutMode = 'point';
+          drawingExtra = false;
+          mode = 'draw';
+          closed = false;
+          clearFill();
+          sheetSizeChips.classList.remove('show');
+          refresh();
+          status('Shape cleared from floor. Undo again to remove corners.');
+        }
+      }
+
+      function fitRectangleXZ(pts){
+        const src = pts.length === 3
+          ? [
+            pts[0],
+            pts[1],
+            pts[2],
+            { x: pts[0].x + pts[2].x - pts[1].x, y: FLOOR_Y, z: pts[0].z + pts[2].z - pts[1].z },
+          ]
+          : pts.slice(0, 4);
+
+        let cx = 0, cz = 0;
+        for (const p of src) { cx += p.x; cz += p.z; }
+        cx /= 4; cz /= 4;
+
+        let bestLen = 0, ax = 1, az = 0;
+        for (let i = 0; i < 4; i++) {
+          const a = src[i], b = src[(i + 1) % 4];
+          const dx = b.x - a.x, dz = b.z - a.z;
+          const len = Math.hypot(dx, dz);
+          if (len > bestLen) { bestLen = len; ax = dx / len; az = dz / len; }
+        }
+        const bx = -az, bz = ax;
+
+        let minU = Infinity, maxU = -Infinity, minV = Infinity, maxV = -Infinity;
+        for (const p of src) {
+          const u = (p.x - cx) * ax + (p.z - cz) * az;
+          const v = (p.x - cx) * bx + (p.z - cz) * bz;
+          if (u < minU) minU = u; if (u > maxU) maxU = u;
+          if (v < minV) minV = v; if (v > maxV) maxV = v;
+        }
+        if (maxU - minU < MIN_POINT_DIST || maxV - minV < MIN_POINT_DIST) return null;
+
+        const corners = [
+          [minU, minV], [maxU, minV], [maxU, maxV], [minU, maxV],
+        ].map(([u, v]) => ({
+          x: cx + ax * u + bx * v,
+          y: FLOOR_Y,
+          z: cz + az * u + bz * v,
+        }));
+
+        let bestRot = 0, bestD = Infinity;
+        for (let rot = 0; rot < 4; rot++) {
+          const d = segmentLength(corners[rot], pts[0]);
+          if (d < bestD) { bestD = d; bestRot = rot; }
+        }
+        const ordered = [];
+        for (let i = 0; i < 4; i++) ordered.push(corners[(bestRot + i) % 4]);
+        if (pts.length >= 4) {
+          const cross = (pts[1].x - pts[0].x) * (pts[2].z - pts[0].z)
+            - (pts[1].z - pts[0].z) * (pts[2].x - pts[0].x);
+          const crossFit = (ordered[1].x - ordered[0].x) * (ordered[3].z - ordered[0].z)
+            - (ordered[1].z - ordered[0].z) * (ordered[3].x - ordered[0].x);
+          if (cross * crossFit < 0) ordered.reverse();
+        }
+        return ordered;
+      }
+
+      function rectangleScore(pts, fitted){
+        if (!fitted || (pts.length !== 3 && pts.length !== 4)) return null;
+        const ring = pts.length === 3
+          ? [pts[0], pts[1], pts[2], { x: pts[0].x + pts[2].x - pts[1].x, y: FLOOR_Y, z: pts[0].z + pts[2].z - pts[1].z }]
+          : pts;
+        let angleOk = 0;
+        const sideLens = [];
+        for (let i = 0; i < 4; i++) {
+          const a = ring[i], b = ring[(i + 1) % 4], c = ring[(i + 2) % 4];
+          const e1x = b.x - a.x, e1z = b.z - a.z;
+          const e2x = c.x - b.x, e2z = c.z - b.z;
+          const l1 = Math.hypot(e1x, e1z), l2 = Math.hypot(e2x, e2z);
+          sideLens.push(l1);
+          if (l1 < 1e-4 || l2 < 1e-4) return null;
+          const cos = Math.abs((e1x * e2x + e1z * e2z) / (l1 * l2));
+          if (cos <= RECT_ANGLE_COS_MAX) angleOk++;
+        }
+        const r02 = Math.min(sideLens[0], sideLens[2]) / Math.max(sideLens[0], sideLens[2]);
+        const r13 = Math.min(sideLens[1], sideLens[3]) / Math.max(sideLens[1], sideLens[3]);
+        const sideRatioOk = r02 >= RECT_SIDE_RATIO_MIN && r13 >= RECT_SIDE_RATIO_MIN;
+
+        let err = 0;
+        const n = Math.min(pts.length, 4);
+        for (let i = 0; i < n; i++) err += segmentLength(pts[i], fitted[i]);
+        err /= n;
+
+        const looksRectangular = (pts.length === 3 && angleOk >= 2)
+          || (angleOk >= 3 && sideRatioOk && err <= RECT_CORNER_ERR_MAX);
+        return looksRectangular ? { fitted, err, fromThree: pts.length === 3 } : null;
+      }
+
+      function hideRectPrompt(){
+        pendingRectFit = null;
+        rectPrompt.classList.remove('open');
+      }
+
+      function hideLayoutPrompt(){
+        layoutPrompt.classList.remove('open');
+        layoutStepMode.classList.add('on');
+        layoutStepSize.classList.remove('on');
+      }
+
+      function setLayoutStep(step){
+        layoutStepMode.classList.toggle('on', step === 'mode');
+        layoutStepSize.classList.toggle('on', step === 'size');
+      }
+
+      function renderSizeChips(container, { includeDrawn = true } = {}){
+        if (!container) return;
+        const presets = includeDrawn
+          ? SNAP_SIZE_PRESETS
+          : SNAP_SIZE_PRESETS.filter((p) => p.id !== 'drawn');
+        container.innerHTML = presets.map((p) => `
+          <button type="button" data-size="${p.id}" class="${p.id === selectedSnapSizeId ? 'active' : ''}">${p.label}</button>
+        `).join('');
+        container.querySelectorAll('[data-size]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            selectedSnapSizeId = btn.dataset.size;
+            container.querySelectorAll('[data-size]').forEach((b) => b.classList.toggle('active', b === btn));
+            if (tileBasis && mode === 'filled') {
+              applySnapSizeToBasis(selectedSnapSizeId);
+              rebuildCellFills();
+              refresh();
+            }
+          });
+        });
+      }
+
+      function showLayoutPrompt(){
+        hideRectPrompt();
+        selectedSnapSizeId = 'drawn';
+        setLayoutStep('mode');
+        layoutText.textContent = points.length === 4
+          ? 'Keep this shape as-is, or Snap matching tiles next to it. You can switch later without losing work.'
+          : 'Keep this shape as-is. Snap needs a 4-corner box first.';
+        layoutSnap.disabled = points.length !== 4;
+        layoutPrompt.classList.add('open');
+        sheetPinned = false;
+        sheet.classList.remove('open');
+        hideDrawChrome();
+        status('Shape ready — keep it, or Snap more tiles.');
+      }
+
+      function applySnapSizeToBasis(sizeId){
+        if (!tileBasis) return false;
+        const preset = SNAP_SIZE_PRESETS.find((p) => p.id === sizeId) || SNAP_SIZE_PRESETS[0];
+        if (preset.w && preset.d) {
+          tileBasis.w = preset.w;
+          tileBasis.d = preset.d;
+        }
+        return true;
+      }
+
+      function openSnapSizeStep(){
+        if (points.length !== 4) {
+          status('Snap next tiles needs 4 corners. Use Edit Points or redraw the box.');
+          return;
+        }
+        renderSizeChips(layoutSizeChips, { includeDrawn: true });
+        setLayoutStep('size');
+        status('Pick the tile size that matches your material, then Start snapping.');
+      }
+
+      function enableSnapTileMode(sizeId = selectedSnapSizeId, { keepCells = false } = {}){
+        hideLayoutPrompt();
+        const basisPts = (keepCells && firstBoxPoints?.length === 4) ? firstBoxPoints : points;
+        if (basisPts.length !== 4) {
+          status('Snap next tiles needs 4 corners. Use Edit Points or redraw the box.');
+          return;
+        }
+        drawingExtra = false;
+        if (!keepCells || !tileBasis) {
+          const fitted = fitRectangleXZ(basisPts);
+          if (fitted) {
+            points = fitted.map((p) => ({ x: p.x, y: FLOOR_Y, z: p.z }));
+            firstBoxPoints = points.map((p) => ({ ...p }));
+            rebuildPolyline(true);
+            syncVertices();
+          }
+          if (!setupTileBasisFromPoints(points)) {
+            status('Could not build a tile grid from that shape. Try a clearer 4-corner box.');
+            return;
+          }
+          selectedSnapSizeId = sizeId || 'drawn';
+          applySnapSizeToBasis(selectedSnapSizeId);
+          occupiedCells = new Set([cellKey(0, 0)]);
+          cellOrder = [{ i: 0, j: 0 }];
+          rebuildCellFills();
+        } else {
+          points = firstBoxPoints.map((p) => ({ ...p }));
+          closed = true;
+          mode = 'filled';
+          selectedSnapSizeId = sizeId || selectedSnapSizeId;
+          applySnapSizeToBasis(selectedSnapSizeId);
+          rebuildCellFills();
+        }
+        layoutMode = 'snap';
+        firstBoxPoints = points.map((p) => ({ ...p }));
+        renderSizeChips(sheetSizeChips, { includeDrawn: true });
+        sheetSizeChips.classList.add('show');
+        sheetPinned = false;
+        sheet.classList.remove('open');
+        refresh();
+        const preset = SNAP_SIZE_PRESETS.find((p) => p.id === selectedSnapSizeId);
+        status(keepCells
+          ? `Snap resumed · ${cellOrder.length} tiles kept. Aim beside an edge and press Snap.`
+          : `Snap mode · ${preset?.label || 'custom'} tiles. Aim beside an edge and press Snap.`);
+      }
+
+      function enablePointToPointMode(){
+        hideLayoutPrompt();
+        if (hasSnapTiles()) {
+          switchToPointKeepTiles();
+          return;
+        }
+        resetTileExtend();
+        layoutMode = 'point';
+        sheetSizeChips.classList.remove('show');
+        clearFill();
+        const tex = textures[selectedTile] || textures.ceramic;
+        fillMesh = buildPolygonFill(points, tex, { inset: true, raised: true });
+        if (fillMesh) selectionGroup.add(fillMesh);
+        sheetPinned = false;
+        sheet.classList.add('open');
+        refresh();
+        status('Point-to-point mode. Shape kept as drawn — use Edit Points to reshape.');
+      }
+
+      function switchToPointKeepTiles(){
+        if (!hasSnapTiles()) {
+          enablePointToPointMode();
+          return;
+        }
+        hideLayoutPrompt();
+        layoutMode = 'point';
+        drawingExtra = true;
+        firstBoxPoints = (firstBoxPoints || points).map((p) => ({ ...p }));
+        points = [];
         closed = false;
         mode = 'draw';
-        clearFill();
+        nextCell = null;
+        pendingExtend = false;
+        if (extendPreview) extendPreview.visible = false;
+        sheetSizeChips.classList.remove('show');
+        closeSheetImmediate();
         refresh();
-        status(points.length
-          ? `Removed last point (${points.length} left). Tap to add more.`
-          : 'All points cleared. Tap the floor to start the area.');
+        status('Snap tiles kept. Aim corners of the leftover, then Close → Apply. Undo removes a corner.');
+      }
+
+      function resumeSnapMode(){
+        hideLayoutPrompt();
+        if (hasSnapTiles()) {
+          enableSnapTileMode(selectedSnapSizeId, { keepCells: true });
+          return;
+        }
+        openSnapSizeStep();
+      }
+
+      function showRectPrompt(fitInfo){
+        pendingRectFit = fitInfo;
+        rectText.textContent = fitInfo.fromThree
+          ? 'You placed 3 corners that look like a box. Complete it as a perfect rectangle on the floor?'
+          : 'Your 4 corners are close to a box but not exact. Straighten them to a perfect rectangle?';
+        rectPrompt.classList.add('open');
+        sheetPinned = false;
+        sheet.classList.remove('open');
+        hideDrawChrome();
+        status('Rectangle detected — choose Yes to straighten, or Keep as drawn.');
+      }
+
+      function applyRectangleFit(){
+        if (!pendingRectFit) return;
+        points = pendingRectFit.fitted.map((p) => ({ x: p.x, y: FLOOR_Y, z: p.z }));
+        hideRectPrompt();
+        closed = true;
+        mode = 'closed';
+        if (!(drawingExtra && hasSnapTiles())) clearFill();
+        refresh();
+        status(`Rectangle set — ${formatLen(polygonPerimeter(points, true))} perimeter, ${polygonArea(points).toFixed(2)} m². Pick a tile.`);
+      }
+
+      function declineRectangleFit(){
+        hideRectPrompt();
+        finishClosePolygon();
+      }
+
+      function finishClosePolygon(){
+        closed = true;
+        mode = 'closed';
+        // Keep Snap tiles when closing a leftover freeform outline.
+        if (!(drawingExtra && hasSnapTiles())) clearFill();
+        previewLine.visible = false;
+        if (liveLabel) liveLabel.sprite.visible = false;
+        refresh();
+        status(drawingExtra
+          ? `Leftover closed — ${polygonArea(points).toFixed(2)} m². Apply Tiles (Snap tiles stay).`
+          : `Area closed — perimeter ${formatLen(polygonPerimeter(points, true))}, ${polygonArea(points).toFixed(2)} m². Pick a tile, then Apply Tiles.`);
       }
 
       function closePolygon(){
@@ -355,12 +1337,21 @@
           status('Need at least 3 points to close the area.');
           return;
         }
-        closed = true;
-        mode = 'closed';
-        clearFill();
-        previewLine.visible = false;
-        refresh();
-        status('Area closed & locked to the floor. Pick a tile, then Apply Tiles.');
+        if (points.length === 3 || points.length === 4) {
+          const fitted = fitRectangleXZ(points);
+          const score = rectangleScore(points, fitted);
+          if (score) {
+            closed = true;
+            mode = 'closed';
+            if (!(drawingExtra && hasSnapTiles())) clearFill();
+            previewLine.visible = false;
+            if (liveLabel) liveLabel.sprite.visible = false;
+            refresh();
+            showRectPrompt(score);
+            return;
+          }
+        }
+        finishClosePolygon();
       }
 
       function applyFill(){
@@ -368,99 +1359,131 @@
           status('Draw and close an area first (3+ points).');
           return;
         }
-        if (!closed) closePolygon();
+        if (pendingRectFit) {
+          status('Choose Yes or Keep as drawn before applying tiles.');
+          return;
+        }
+        if (!closed) {
+          closePolygon();
+          if (pendingRectFit || !closed) return;
+        }
+
+        if (drawingExtra && hasSnapTiles()) {
+          const tex = textures[selectedTile] || textures.ceramic;
+          const mesh = buildPolygonFill(points, tex, { inset: true, raised: true });
+          if (!mesh) return;
+          selectionGroup.add(mesh);
+          extraFillMeshes.push(mesh);
+          drawingExtra = false;
+          layoutMode = 'point';
+          mode = 'filled';
+          points = firstBoxPoints.map((p) => ({ ...p }));
+          closed = true;
+          sheetPinned = true;
+          sheet.classList.add('open');
+          hideDrawChrome();
+          refresh();
+          status('Free shape added. Undo removes it. Tap Use Snap to continue with boxes.');
+          return;
+        }
+
+        mode = 'filled';
+        const savedBox = points.map((p) => ({ ...p }));
+        resetTileExtend();
+        firstBoxPoints = savedBox;
         clearFill();
         const tex = textures[selectedTile] || textures.ceramic;
-        fillMesh = buildPolygonFill(points, tex);
+        fillMesh = buildPolygonFill(points, tex, { inset: true, raised: true });
         if (!fillMesh) return;
         selectionGroup.add(fillMesh);
-        mode = 'filled';
         refresh();
-        status('Tiles locked to the floor — move around, the area stays put.');
+        showLayoutPrompt();
       }
 
       function clearAll(){
         points = [];
         closed = false;
         mode = 'draw';
-        dragIndex = -1;
         clearFill();
+        resetTileExtend();
         previewLine.visible = false;
+        if (liveLabel) liveLabel.sprite.visible = false;
+        hideRectPrompt();
+        hideLayoutPrompt();
+        closeSheetImmediate();
+        sheetSizeChips.classList.remove('show');
         refresh();
-        status('Tap points on the floor to outline the area (polygonal ROI).');
+        status('Aim the crosshair at a corner, then press Snap.');
       }
 
       function enterEditPoints(){
+        if (drawingExtra) {
+          status('Finish or Undo the leftover shape, or press × to reset all.');
+          return;
+        }
         if (!points.length) return;
+        hideRectPrompt();
+        hideLayoutPrompt();
+        closeSheetImmediate();
+        hideDrawChrome();
+        resetTileExtend();
+        sheetSizeChips.classList.remove('show');
         mode = 'draw';
         closed = false;
         clearFill();
         refresh();
-        status('Editing points — drag a white dot, tap to add, or Close Area when done.');
+        status('Editing — aim and press Snap to add, Undo to remove, or Close when done.');
       }
 
-      function pickVertex(clientX, clientY){
-        let best = -1, bestDist = CLOSE_FIRST_PX;
-        for (let i = 0; i < points.length; i++) {
-          if (!vertexMeshes[i]) continue;
-          const p = vertexMeshes[i].position.clone().project(camera);
-          const sx = (p.x * 0.5 + 0.5) * window.innerWidth;
-          const sy = (-p.y * 0.5 + 0.5) * window.innerHeight;
-          const d = Math.hypot(sx - clientX, sy - clientY);
-          if (d < bestDist) { bestDist = d; best = i; }
-        }
-        return best;
-      }
-
-      function onTouchStart(e){
+      function requestSnap(){
         if (!scaleReady) return;
-        if (sheet.contains(e.target) || drawBar.contains(e.target) || btnClose.contains(e.target)) return;
-        // After apply, taps must not move the locked polygon — use Edit Points.
-        if (mode === 'filled') return;
-        const t = e.changedTouches ? e.changedTouches[0] : e;
-
-        // Drag existing vertex while drawing/editing
-        if (mode === 'draw' || mode === 'closed') {
-          const idx = pickVertex(t.clientX, t.clientY);
-          if (idx >= 0) {
-            // Tap first point with 3+ verts → close polygon
-            if (mode === 'draw' && idx === 0 && points.length >= 3) {
-              closePolygon();
-              e.preventDefault();
-              return;
-            }
-            if (mode === 'draw') {
-              dragIndex = idx;
-              clearFill();
-              syncDrawUi();
-              e.preventDefault();
-              return;
-            }
-          }
+        const now = performance.now();
+        if (now - lastTriggerAt < TRIGGER_DEBOUNCE_MS) return;
+        lastTriggerAt = now;
+        if (canExtendTiles()) {
+          pendingExtend = true;
+          return;
         }
-
-        if (mode === 'draw') {
-          const p = resolveFloorPoint(camera, t.clientX, t.clientY, groundPlane);
-          if (!p) {
-            status('No floor there — aim at open ground, then tap.');
-            return;
-          }
-          addPoint(p);
-          e.preventDefault();
-        }
+        if (mode !== 'draw') return;
+        pendingTrigger = true;
       }
 
-      function onTouchMove(e){
-        if (dragIndex < 0) return;
-        const t = e.changedTouches ? e.changedTouches[0] : e;
-        const p = resolveFloorPoint(camera, t.clientX, t.clientY, groundPlane);
-        if (!p) return;
-        points[dragIndex] = p;
-        refresh();
-        e.preventDefault();
+      /** Consumed on the next render frame so the aim position is current. */
+      function processTrigger(){
+        if (pendingExtend) {
+          pendingExtend = false;
+          placeNextTile();
+          return;
+        }
+        if (!pendingTrigger) return;
+        pendingTrigger = false;
+        if (mode !== 'draw') return;
+        if (!aim) {
+          status('No floor under the crosshair — aim at open ground, then press Snap.');
+          return;
+        }
+        if (aimSnapsToFirst && points.length >= 3) {
+          closePolygon();
+          return;
+        }
+        addPoint(aim);
       }
 
-      function onTouchEnd(){ dragIndex = -1; }
+      function updateAim(){
+        const hit = resolveCenterFloorPoint(camera, groundPlane);
+        if (!hit) {
+          aim = null;
+          aimSnapsToFirst = false;
+          return;
+        }
+        // Smooth the aim so SLAM jitter does not make the reticle and preview vibrate.
+        if (!aim) aim = { x: hit.x, y: FLOOR_Y, z: hit.z };
+        else {
+          aim.x += (hit.x - aim.x) * RETICLE_LERP;
+          aim.z += (hit.z - aim.z) * RETICLE_LERP;
+        }
+        aimSnapsToFirst = points.length >= 3 && segmentLength(aim, points[0]) < SNAP_CLOSE_DIST;
+      }
 
       api = {
         applyFill,
@@ -468,9 +1491,24 @@
         undoPoint,
         closePolygon,
         enterEditPoints,
+        requestSnap,
+        toggleTileSheet,
+        applyRectangleFit,
+        declineRectangleFit,
+        enablePointToPointMode,
+        enableSnapTileMode,
+        switchToPointKeepTiles,
+        resumeSnapMode,
+        openSnapSizeStep,
+        setLayoutStep,
+        setMeasurementsVisible,
+        canExtendTiles,
         setTile(name){
           selectedTile = name;
-          if (mode === 'filled') applyFill();
+          if (mode === 'filled') {
+            if (tileBasis) rebuildCellFills();
+            else applyFill();
+          }
         },
       };
 
@@ -479,6 +1517,8 @@
         listeners: [
           { event: 'coaching-overlay.show', process: () => {
             scaleReady = false;
+            closeSheetImmediate();
+            hideDrawChrome();
             syncDrawUi();
             status('Push phone forward, then pull back to set floor scale…');
           } },
@@ -486,7 +1526,7 @@
             scaleReady = true;
             syncXrCamera();
             syncDrawUi();
-            status('Tap points on the floor to outline your area. Close when done.');
+            status('Aim the crosshair at corners and press Snap. Close when done.');
           } },
         ],
         onStart: ({ canvas }) => {
@@ -513,39 +1553,51 @@
           borderLine.visible = false;
           selectionGroup.add(borderLine);
 
+          const previewGeo = new THREE.BufferGeometry();
+          previewGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
           previewLine = new THREE.Line(
-            new THREE.BufferGeometry(),
+            previewGeo,
             new THREE.LineDashedMaterial({ color: 0x90caf9, dashSize: 0.05, gapSize: 0.03 })
           );
           previewLine.visible = false;
           selectionGroup.add(previewLine);
 
-          syncXrCamera();
+          const extendGeo = new THREE.BufferGeometry();
+          extendGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(15), 3));
+          extendPreview = new THREE.Line(
+            extendGeo,
+            new THREE.LineDashedMaterial({ color: 0xffc107, dashSize: 0.06, gapSize: 0.04 })
+          );
+          extendPreview.visible = false;
+          selectionGroup.add(extendPreview);
 
-          canvas.addEventListener('touchstart', onTouchStart, { passive: false });
-          canvas.addEventListener('touchmove', onTouchMove, { passive: false });
-          canvas.addEventListener('touchend', onTouchEnd, { passive: true });
-          canvas.addEventListener('mousedown', onTouchStart);
-          window.addEventListener('mousemove', onTouchMove);
-          window.addEventListener('mouseup', onTouchEnd);
+          liveLabel = makeLabel();
+
+          syncXrCamera();
 
           syncDrawUi();
           status('Move phone forward then back to measure room scale…');
         },
         onUpdate: () => {
           if (!camera || !scaleReady) return;
+
+          updateAim();
+          updateExtendPreview();
+          if (extendPreview?.visible) {
+            try { extendPreview.computeLineDistances(); } catch (_) {}
+          }
+
           // Preview line only while drawing an open polygon — not after close/apply.
           if (mode !== 'draw' || points.length === 0) {
             previewLine.visible = false;
-            return;
-          }
-          const aim = resolveFloorPoint(camera, innerWidth * 0.5, innerHeight * 0.55, groundPlane);
-          if (aim) {
+            if (liveLabel) liveLabel.sprite.visible = false;
+          } else {
             updatePreviewTo(aim);
             try { previewLine.computeLineDistances(); } catch (_) {}
-          } else {
-            previewLine.visible = false;
           }
+
+          processTrigger();
+          syncAimUi();
         },
       };
     };
@@ -560,9 +1612,54 @@
     });
     btnApply.addEventListener('click', () => api?.applyFill());
     btnEditPoints.addEventListener('click', () => api?.enterEditPoints());
+    btnSheetUndo.addEventListener('click', () => api?.undoPoint());
     btnClose.addEventListener('click', () => api?.clearAll());
+    btnToggleCm.addEventListener('click', () => {
+      showMeasurements = !showMeasurements;
+      if (api?.setMeasurementsVisible) api.setMeasurementsVisible(showMeasurements);
+      else {
+        btnToggleCm.setAttribute('aria-pressed', showMeasurements ? 'true' : 'false');
+        btnToggleCm.classList.toggle('off', !showMeasurements);
+        btnToggleCm.textContent = showMeasurements ? 'cm' : 'cm✕';
+        measureEl.classList.toggle('on', showMeasurements);
+      }
+    });
     btnUndo.addEventListener('click', () => api?.undoPoint());
-    btnClosePoly.addEventListener('click', () => api?.closePolygon());
+    btnSnap.addEventListener('click', () => api?.requestSnap());
+    btnClosePoly.addEventListener('click', () => {
+      if (api?.canExtendTiles?.() || (api && btnClosePoly.textContent === 'Tiles')) {
+        api.toggleTileSheet();
+      } else {
+        api?.closePolygon();
+      }
+    });
+    rectYes.addEventListener('click', () => api?.applyRectangleFit());
+    rectNo.addEventListener('click', () => api?.declineRectangleFit());
+    layoutPoint.addEventListener('click', () => api?.enablePointToPointMode());
+    layoutSnap.addEventListener('click', () => api?.openSnapSizeStep());
+    layoutSnapBack.addEventListener('click', () => api?.setLayoutStep('mode'));
+    layoutSnapGo.addEventListener('click', () => api?.enableSnapTileMode(selectedSnapSizeId));
+    btnSwitchPoint.addEventListener('click', () => api?.switchToPointKeepTiles());
+    btnSwitchSnap.addEventListener('click', () => api?.resumeSnapMode());
+    btnModeQuick.addEventListener('click', () => {
+      if (api?.canExtendTiles?.()) api.switchToPointKeepTiles();
+      else api?.resumeSnapMode();
+    });
+
+    // Double-tap / pinch zoom scales the page and freezes the AR camera.
+    (function preventBrowserZoom(){
+      const block = (e) => { e.preventDefault(); };
+      document.addEventListener('gesturestart', block, { passive: false });
+      document.addEventListener('gesturechange', block, { passive: false });
+      document.addEventListener('gestureend', block, { passive: false });
+      document.addEventListener('dblclick', block, { passive: false });
+      let lastTouchEnd = 0;
+      document.addEventListener('touchend', (e) => {
+        const now = Date.now();
+        if (now - lastTouchEnd < 350) e.preventDefault();
+        lastTouchEnd = now;
+      }, { passive: false });
+    })();
 
     function startEngine(){
       if (engineStarted || !window.XR8) return;

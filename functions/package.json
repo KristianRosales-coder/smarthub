@@ -1,7 +1,9 @@
 {
   "name": "smarthub-functions",
-  "description": "Tile Depot Gen AI visualizer + credit tracking",
-  "engines": { "node": "20 || >=22" },
+  "description": "Tile Depot Gen AI visualizer, credits, and order-summary email",
+  "engines": {
+    "node": "20 || >=22"
+  },
   "main": "index.js",
   "type": "commonjs",
   "scripts": {
@@ -12,6 +14,7 @@
     "@google/genai": "^1.19.0",
     "firebase-admin": "^13.4.0",
     "firebase-functions": "^6.3.2",
+    "nodemailer": "^10.1.1",
     "sharp": "^0.34.2"
   },
   "private": true

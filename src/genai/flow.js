@@ -210,7 +210,7 @@ export async function openGenAiFlow({ host, tile, mode = 'kiosk', onClose, onAdd
 
     root.querySelector('#genaiCart').addEventListener('click', () => {
       onAddToCart?.(tile);
-      alert(`${tile.name} added to cart. Show this cart to the cashier for payment.`);
+      alert(`${tile.name} added to cart. Checkout when ready — staff will capture the order summary after POS payment.`);
     });
     root.querySelector('#genaiAnother').addEventListener('click', () => {
       onTryAnother?.();
